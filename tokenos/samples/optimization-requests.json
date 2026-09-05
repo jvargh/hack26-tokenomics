@@ -1,0 +1,50 @@
+[
+  {
+    "id": "support-upload-1",
+    "taskType": "lookup",
+    "input": "return window",
+    "context": [
+      {
+        "id": "returns#window",
+        "key": "return window",
+        "text": "Returns are accepted within 30 days.",
+        "output": { "decision": "30 days", "citations": ["returns#window"] }
+      }
+    ],
+    "expectedOutput": { "decision": "30 days", "citations": ["returns#window"] },
+    "reuseScope": "public-support-v1",
+    "freshnessVersion": "2026-09"
+  },
+  {
+    "id": "support-upload-2",
+    "taskType": "lookup",
+    "input": "shipping time",
+    "context": [
+      {
+        "id": "shipping#standard",
+        "key": "shipping time",
+        "text": "Standard shipping takes 3 business days.",
+        "output": { "decision": "3 business days", "citations": ["shipping#standard"] }
+      }
+    ],
+    "expectedOutput": { "decision": "3 business days", "citations": ["shipping#standard"] },
+    "reuseScope": "public-support-v1",
+    "freshnessVersion": "2026-09"
+  },
+  {
+    "id": "support-upload-3",
+    "taskType": "lookup",
+    "input": "return window",
+    "context": [
+      {
+        "id": "returns#window",
+        "key": "return window",
+        "text": "Returns are accepted within 30 days.",
+        "output": { "decision": "30 days", "citations": ["returns#window"] }
+      }
+    ],
+    "expectedOutput": { "decision": "30 days", "citations": ["returns#window"] },
+    "reuseScope": "public-support-v1",
+    "freshnessVersion": "2026-09"
+  }
+]

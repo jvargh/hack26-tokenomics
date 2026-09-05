@@ -1,0 +1,39 @@
+{
+  "_comment": "Administrator-configured model prices. The defaults below are public list prices for the named model classes and MUST be confirmed against your own agreement, region, and commitment tier before any figure here is treated as your real cost. Set effective_date to an empty string to make TokenOS report tokens without a calculated cost. Entries are keyed by deployment name and versioned by model, model_version, and region so two proofs are never compared under different prices.",
+  "tokenos-gpt41-nano": {
+    "input_per_1m_usd": 0.1,
+    "output_per_1m_usd": 0.4,
+    "effective_date": "2026-01-01",
+    "model": "gpt-4.1-nano",
+    "model_version": "2025-04-14",
+    "region": "eastus",
+    "source": "Public list price, gpt-4.1-nano. Confirm against your agreement."
+  },
+  "tokenos-gpt4o": {
+    "input_per_1m_usd": 2.5,
+    "output_per_1m_usd": 10,
+    "effective_date": "2026-01-01",
+    "model": "gpt-4o",
+    "model_version": "2024-11-20",
+    "region": "eastus",
+    "source": "Public list price, gpt-4o. Confirm against your agreement."
+  },
+  "tokenos-efficient": {
+    "input_per_1m_usd": 0.15,
+    "output_per_1m_usd": 0.6,
+    "effective_date": "2026-01-01",
+    "model": "gpt-4o-mini",
+    "model_version": "unset",
+    "region": "unset",
+    "source": "Public list price, gpt-4o-mini class. Confirm against your agreement."
+  },
+  "tokenos-advanced": {
+    "input_per_1m_usd": 2.5,
+    "output_per_1m_usd": 10,
+    "effective_date": "2026-01-01",
+    "model": "gpt-4o",
+    "model_version": "unset",
+    "region": "unset",
+    "source": "Public list price, gpt-4o class. Confirm against your agreement."
+  }
+}

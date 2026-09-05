@@ -1,0 +1,18 @@
+# TokenOS — Stop & Start Guide
+
+1. Overall STOP Approach:
+   - Run script: .\stop.ps1
+   - Or single line:
+     Get-NetTCPConnection -LocalPort 8000,5173,5174,5175 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | Where-Object { $_ -gt 0 } | ForEach-Object { Stop-Process -Id $_ -Force }
+   - Or stop Node/Python:
+     Stop-Process -Name node, python -Force -ErrorAction SilentlyContinue
+
+2. Overall START Approach:
+   - Run script: .\start.ps1
+   - Or single line:
+     Start-Process -FilePath "tokenos\services\tokenos-api\.venv\Scripts\python.exe" -ArgumentList "-m uvicorn tokenos_api.app:app --host 127.0.0.1 --port 8000" -WorkingDirectory "tokenos\services\tokenos-api"; Start-Process -FilePath "cmd.exe" -ArgumentList "/c npm run dev" -WorkingDirectory "tokenos\apps\web"
+
+3. Overall RESTART Approach:
+   .\stop.ps1; .\start.ps1
+
+

@@ -1,0 +1,8 @@
+fastapi>=0.115
+uvicorn[standard]>=0.32
+python-multipart>=0.0.12
+pydantic>=2.9
+
+# Optional, only needed when TOKENOS_MODEL_MODE=foundry
+# openai>=1.54
+# azure-identity>=1.19

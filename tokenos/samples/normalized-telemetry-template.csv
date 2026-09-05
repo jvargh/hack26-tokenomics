@@ -1,0 +1,2 @@
+requestId,providerRequestId,timestamp,application,deployment,inputTokens,outputTokens,cachedInputTokens,reasoningTokens,latencyMs,outcomeStatus,retryCount,owner,promptHash
+replace-with-request-id,replace-with-provider-response-id,2026-09-01T12:00:00Z,replace-with-application,replace-with-deployment,,,,,,,,replace-with-owner,

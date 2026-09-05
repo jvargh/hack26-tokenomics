@@ -1,0 +1,13 @@
+{
+  "version": "replace-with-approved-price-version",
+  "replace-with-efficient-deployment": {
+    "input_per_1m_usd": null,
+    "output_per_1m_usd": null,
+    "cached_input_per_1m_usd": null
+  },
+  "replace-with-advanced-and-baseline-deployment": {
+    "input_per_1m_usd": null,
+    "output_per_1m_usd": null,
+    "cached_input_per_1m_usd": null
+  }
+}

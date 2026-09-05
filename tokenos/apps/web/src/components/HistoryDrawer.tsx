@@ -1,0 +1,98 @@
+import { useEffect, useRef, useState } from "react";
+import { useRun } from "../state/runContext";
+import { api } from "../api/client";
+import { formatCount, formatDuration, formatUsd } from "./shared/format";
+import { StatusBadge } from "./shared/Badges";
+import { workflowTitle } from "./WorkflowChoices";
+import { normalizeRecord } from "../optimization/client";
+import { dollars, SampleBadge } from "../optimization/OptimizationViews";
+
+export function HistoryDrawer({ onClose, onOpenRun }: {
+  onClose: () => void; onOpenRun: (runId: string, workflowId: string) => void;
+}) {
+  const { state } = useRun();
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const [entries, setEntries] = useState<Awaited<ReturnType<typeof api.history>>["runs"]>(
+    state.history.map((entry) => ({ run_id: entry.runId, workflow_id: entry.workflowId, status: entry.status, proof: entry.proof, created_at: "" }))
+  );
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    api.history().then((result) => { if (active) setEntries(result.runs); })
+      .catch(() => { if (active) setError("Server history is unavailable. Showing recorded proofs from this browser session."); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="drawer-backdrop"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <aside className="drawer" role="dialog" aria-modal="true" aria-label="Run history">
+        <div className="drawer-head">
+          <h2>History</h2>
+          <button ref={closeRef} type="button" className="btn btn-small" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        <p className="muted">
+          Recorded server runs and proofs. Open a completed run to inspect its outcome and cost proof.
+          Starting another run never deletes a recorded proof.
+        </p>
+
+        {loading && <p className="muted" role="status">Loading recorded runs…</p>}
+        {error && <p className="muted" role="status">{error}</p>}
+        {!loading && entries.length === 0 ? (
+          <p className="muted">No completed runs yet.</p>
+        ) : (
+          <ul className="check-list">
+            {entries.map((entry) => (
+              <li key={entry.run_id} className="check">
+                <button type="button" className="optimization-history-button"
+                  onClick={() => onOpenRun(entry.run_id, entry.workflow_id)}
+                  aria-label={`Open ${workflowTitle(entry.workflow_id)} ${entry.proof ? "proof" : "run"} ${entry.run_id}`}>
+                <div className="check-head">
+                  <span className="check-name">{workflowTitle(entry.workflow_id)}</span>
+                  <StatusBadge tone={entry.status === "completed" ? "good" : "warn"}>
+                    {entry.status === "completed" ? "Completed" : entry.status.replace(/_/g, " ")}
+                  </StatusBadge>
+                </div>
+                {entry.workflow_id === "workflow_optimization" ? (() => {
+                  const record = normalizeRecord(entry.optimization ?? entry.proof);
+                  return <div className="muted" style={{ marginTop: 6, fontSize: 12.5 }}>
+                    {entry.run_id} · {record.mode === "analyze" ? "Measured current cost" : "Measured governed cost"} ·{" "}
+                    {dollars(record.mode === "analyze" ? record.current.costUsd : record.modelSpendUsd)}{" "}
+                    <SampleBadge sample={record.sample} />
+                  </div>;
+                })() : entry.proof ? (
+                  <p className="muted" style={{ margin: "6px 0 0", fontSize: 12.5 }}>
+                    {entry.run_id} · {entry.proof.measurement_label} ·{" "}
+                    {formatUsd(entry.proof.economics.total_calculated_cost_usd, true)} ·{" "}
+                    {formatCount(entry.proof.usage.model_calls)} model call(s) ·{" "}
+                    {formatDuration(entry.proof.usage.duration_ms)}
+                  </p>
+                ) : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </aside>
+    </div>
+  );
+}
