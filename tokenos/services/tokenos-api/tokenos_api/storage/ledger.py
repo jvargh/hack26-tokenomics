@@ -156,6 +156,23 @@ class RunLedger:
             )
             connection.commit()
 
+    def delete(self, run_id: str) -> bool:
+        """Removes the durable proof and baseline rows for one run, so a deleted
+        run cannot reappear in enterprise reporting."""
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute("DELETE FROM run_proofs WHERE run_id = ?", (run_id,))
+            connection.execute("DELETE FROM run_baselines WHERE run_id = ?", (run_id,))
+            connection.commit()
+            return cursor.rowcount > 0
+
+    def clear(self) -> int:
+        """Removes every persisted proof and baseline."""
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute("DELETE FROM run_proofs")
+            connection.execute("DELETE FROM run_baselines")
+            connection.commit()
+            return cursor.rowcount
+
     def report(self, limit: int = 200) -> list[dict]:
         """Enterprise reporting view: one row per persisted run, joined with its
         baseline outcome when one exists."""

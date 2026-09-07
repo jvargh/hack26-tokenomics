@@ -105,6 +105,46 @@ class OptimizationStore:
                               (tenant_id(), max(1, min(limit, 1000)))).fetchall()
         return [json.loads(row["body"]) for row in rows]
 
+    def delete(self, run_id: str) -> bool:
+        """Removes a run and everything recorded against it.
+
+        Events, artifacts and execution claims go with the run so no orphaned
+        rows survive. A file is only removed when no other run still cites it.
+        """
+        with self.db() as db:
+            row = db.execute("SELECT body FROM optimization_runs WHERE id=? AND tenant=?",
+                             (run_id, tenant_id())).fetchone()
+            if row is None:
+                return False
+            run = json.loads(row["body"])
+            db.execute("DELETE FROM optimization_runs WHERE id=? AND tenant=?", (run_id, tenant_id()))
+            db.execute("DELETE FROM optimization_events WHERE run_id=?", (run_id,))
+            db.execute("DELETE FROM optimization_claims WHERE run_id=?", (run_id,))
+            still_used = set()
+            for other in db.execute("SELECT body FROM optimization_runs WHERE tenant=?",
+                                    (tenant_id(),)).fetchall():
+                for item in json.loads(other["body"]).get("inputManifest", []):
+                    if item.get("fileId"):
+                        still_used.add(item["fileId"])
+            for item in run.get("inputManifest", []):
+                file_id = item.get("fileId")
+                if file_id and file_id not in still_used:
+                    db.execute("DELETE FROM optimization_files WHERE id=? AND tenant=?",
+                               (file_id, tenant_id()))
+        return True
+
+    def clear(self) -> int:
+        """Removes every run for this tenant, with its events, files and claims."""
+        with self.db() as db:
+            ids = [row["id"] for row in db.execute(
+                "SELECT id FROM optimization_runs WHERE tenant=?", (tenant_id(),)).fetchall()]
+            for run_id in ids:
+                db.execute("DELETE FROM optimization_events WHERE run_id=?", (run_id,))
+                db.execute("DELETE FROM optimization_claims WHERE run_id=?", (run_id,))
+            db.execute("DELETE FROM optimization_runs WHERE tenant=?", (tenant_id(),))
+            db.execute("DELETE FROM optimization_files WHERE tenant=?", (tenant_id(),))
+        return len(ids)
+
     def put_file(self, metadata: dict, content: bytes) -> dict:
         metadata = {"fileId": f"file_{secrets.token_hex(8)}", **metadata}
         with self.db() as db:

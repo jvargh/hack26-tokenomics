@@ -527,6 +527,56 @@ async def list_runs() -> dict:
     return {"runs": sorted(run_store.history() + optimization_runs, key=lambda run: run["created_at"], reverse=True)}
 
 
+@api.delete("/runs/{run_id}")
+async def delete_run(run_id: str) -> dict:
+    """Deletes one recorded run everywhere it is held: the in-memory history, the
+    optimization store, and the durable ledger behind enterprise reporting.
+
+    A run that is still executing cannot be deleted, because its proof does not
+    exist yet and live progress readers are still attached to it.
+    """
+    optimization_run = optimization_store.get(run_id)
+    if optimization_run is not None:
+        if optimization_run.get("status") == "running":
+            raise HTTPException(status_code=409, detail="This run is still going. Wait for it to finish, then delete it.")
+        optimization_store.delete(run_id)
+        ledger_store.delete(run_id)
+        return {"deleted": True, "run_id": run_id}
+
+    run = run_store.run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="No run with that identifier.")
+    if run.active:
+        raise HTTPException(status_code=409, detail="This run is still going. Wait for it to finish, then delete it.")
+    run_store.delete(run_id)
+    ledger_store.delete(run_id)
+    return {"deleted": True, "run_id": run_id}
+
+
+@api.delete("/runs")
+async def delete_all_runs() -> dict:
+    """Clears the whole run history. Runs that are still executing are kept.
+
+    The ledger is cleared outright rather than run by run: it outlives the
+    in-memory history, so deleting only the runs still listed would leave
+    older rows stranded in enterprise reporting with no way to remove them.
+    A run still executing has not written its ledger row yet, so it is unaffected.
+    """
+    active = [run["runId"] for run in optimization_store.history() if run.get("status") == "running"]
+    active += [run.run_id for run in (run_store.run(item["run_id"]) for item in run_store.history())
+               if run is not None and run.active]
+
+    removed = 0
+    for item in optimization_store.history():
+        if item["runId"] not in active and optimization_store.delete(item["runId"]):
+            removed += 1
+    for item in run_store.history():
+        if item["run_id"] not in active and run_store.delete(item["run_id"]):
+            removed += 1
+    ledger_store.clear()
+    return {"deleted": removed, "kept_running": len(active)}
+
+
 @api.get("/reports/runs")
 async def reports_runs(limit: int = 200) -> dict:
     """Enterprise reporting view over the durable ledger.

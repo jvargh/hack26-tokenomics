@@ -86,6 +86,16 @@ class Run:
     def finished(self) -> bool:
         return self.status in {"completed", "failed", "stopped", "blocked"}
 
+    @property
+    def active(self) -> bool:
+        """True while the run is still in flight, whatever outcome it reaches.
+
+        `finished` is deliberately not reused here: it drives stream keep-alives
+        and does not count `completed_with_findings` as a terminal state, which
+        would wrongly protect a finished run from deletion.
+        """
+        return self.status in {"created", "running", "waiting"}
+
     def state(self) -> dict:
         return {
             "run_id": self.run_id,
@@ -155,6 +165,24 @@ class RunStore:
 
     def run(self, run_id: str) -> Run | None:
         return self._runs.get(run_id)
+
+    def delete(self, run_id: str) -> bool:
+        """Removes one run and any idempotency key that pointed at it."""
+        if run_id not in self._runs:
+            return False
+        del self._runs[run_id]
+        for key, target in list(self._idempotency.items()):
+            if target == run_id:
+                del self._idempotency[key]
+        return True
+
+    def clear(self) -> int:
+        """Removes every recorded run. Plans are left alone: they hold no proof
+        and an in-flight plan may still be waiting to start."""
+        removed = len(self._runs)
+        self._runs.clear()
+        self._idempotency.clear()
+        return removed
 
     def history(self) -> list[dict]:
         return [

@@ -1312,6 +1312,66 @@ th.numeric {
   white-space: nowrap;
 }
 
+/* History rows carry their own delete control beside the open-run button.
+ * The two must be siblings, never nested, or the row stops being keyboard
+ * reachable as two separate actions. */
+.history-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.history-row > .optimization-history-button {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Reserving the width the confirmation needs stops the row reflowing when the
+ * single Delete button is replaced by the Delete/Keep pair. */
+.history-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-width: 132px;
+  justify-content: flex-end;
+}
+
+.history-confirm-text {
+  font-size: 12px;
+  color: var(--tos-muted);
+  white-space: nowrap;
+}
+
+.history-delete {
+  flex-shrink: 0;
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-field);
+  background: transparent;
+  color: var(--tos-muted);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.history-delete:hover {
+  border-color: var(--tos-risk);
+  color: var(--tos-risk);
+}
+
+.drawer-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.btn-danger {
+  border-color: var(--tos-risk);
+  color: var(--tos-risk);
+}
+
 /* ---------------------------------------------------------------------------
  * Technical evidence and run proof.
  *

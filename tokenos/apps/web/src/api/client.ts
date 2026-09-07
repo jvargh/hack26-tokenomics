@@ -164,7 +164,15 @@ export const api = {
         proof: Proof | null;
         optimization?: unknown;
       }>;
-    }>("/api/runs")
+    }>("/api/runs"),
+
+  deleteRun: (runId: string) =>
+    request<{ deleted: boolean; run_id: string }>(`/api/runs/${encodeURIComponent(runId)}`, {
+      method: "DELETE"
+    }),
+
+  deleteAllRuns: () =>
+    request<{ deleted: number; kept_running: number }>("/api/runs", { method: "DELETE" })
 };
 
 const RUN_EVENT_TYPES = [

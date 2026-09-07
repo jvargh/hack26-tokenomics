@@ -30,6 +30,10 @@ export function HistoryDrawer({ onClose, onOpenRun }: {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  /** Deleting a proof is not undoable, so every delete is confirmed in place. */
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -48,6 +52,39 @@ export function HistoryDrawer({ onClose, onOpenRun }: {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  async function removeOne(runId: string) {
+    setBusy(runId);
+    setError("");
+    try {
+      await api.deleteRun(runId);
+      setEntries((current) => current.filter((entry) => entry.run_id !== runId));
+      setNotice("Run deleted.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "That run could not be deleted.");
+    } finally {
+      setBusy(null);
+      setConfirming(null);
+    }
+  }
+
+  async function removeAll() {
+    setBusy("all");
+    setError("");
+    try {
+      const result = await api.deleteAllRuns();
+      const remaining = await api.history();
+      setEntries(remaining.runs);
+      setNotice(result.kept_running > 0
+        ? `Deleted ${result.deleted} run(s). ${result.kept_running} still running and were kept.`
+        : `Deleted ${result.deleted} run(s).`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "History could not be cleared.");
+    } finally {
+      setBusy(null);
+      setConfirming(null);
+    }
+  }
+
   return (
     <div
       className="drawer-backdrop"
@@ -58,24 +95,43 @@ export function HistoryDrawer({ onClose, onOpenRun }: {
       <aside className="drawer" role="dialog" aria-modal="true" aria-label="Run history">
         <div className="drawer-head">
           <h2>History</h2>
-          <button ref={closeRef} type="button" className="btn btn-small" onClick={onClose}>
-            Close
-          </button>
+          <div className="drawer-head-actions">
+            {entries.length > 0 && (
+              confirming === "all" ? (
+                <>
+                  <span className="history-confirm-text">Delete all {entries.length}?</span>
+                  <button type="button" className="btn btn-small btn-danger" disabled={busy !== null}
+                    onClick={removeAll}>
+                    {busy === "all" ? "Deleting…" : "Delete all"}
+                  </button>
+                  <button type="button" className="btn btn-small" onClick={() => setConfirming(null)}>Keep</button>
+                </>
+              ) : (
+                <button type="button" className="btn btn-small" onClick={() => { setNotice(""); setConfirming("all"); }}>
+                  Clear all
+                </button>
+              )
+            )}
+            <button ref={closeRef} type="button" className="btn btn-small" onClick={onClose}>
+              Close
+            </button>
+          </div>
         </div>
 
         <p className="muted">
           Recorded server runs and proofs. Open a completed run to inspect its outcome and cost proof.
-          Starting another run never deletes a recorded proof.
+          Starting another run never deletes a recorded proof — only you can, with the delete buttons below.
         </p>
 
         {loading && <p className="muted" role="status">Loading recorded runs…</p>}
         {error && <p className="muted" role="status">{error}</p>}
+        {notice && !error && <p className="muted" role="status">{notice}</p>}
         {!loading && entries.length === 0 ? (
           <p className="muted">No completed runs yet.</p>
         ) : (
           <ul className="check-list">
             {entries.map((entry) => (
-              <li key={entry.run_id} className="check">
+              <li key={entry.run_id} className="check history-row">
                 <button type="button" className="optimization-history-button"
                   onClick={() => onOpenRun(entry.run_id, entry.workflow_id)}
                   aria-label={`Open ${workflowTitle(entry.workflow_id)} ${entry.proof ? "proof" : "run"} ${entry.run_id}`}>
@@ -108,6 +164,26 @@ export function HistoryDrawer({ onClose, onOpenRun }: {
                   </p>
                 ) : null}
                 </button>
+                {confirming === entry.run_id ? (
+                  <span className="history-row-actions">
+                    <button type="button" className="btn btn-small btn-danger" disabled={busy !== null}
+                      aria-label={`Confirm delete run ${entry.run_id}`}
+                      onClick={() => removeOne(entry.run_id)}>
+                      {busy === entry.run_id ? "Deleting…" : "Delete"}
+                    </button>
+                    <button type="button" className="btn btn-small"
+                      aria-label={`Keep run ${entry.run_id}`}
+                      onClick={() => setConfirming(null)}>Keep</button>
+                  </span>
+                ) : (
+                  <span className="history-row-actions">
+                    <button type="button" className="history-delete"
+                      aria-label={`Delete run ${entry.run_id}`}
+                      onClick={() => { setNotice(""); setConfirming(entry.run_id); }}>
+                      Delete
+                    </button>
+                  </span>
+                )}
               </li>
             ))}
           </ul>
