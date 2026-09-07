@@ -224,6 +224,27 @@ export function OptimizationJourney({ initialRunId, onSelectWorkflow }: {
     // actually commits model cost. Both phases stay open for inspection.
     const optimized = await optimizationApi.optimize(planned.runId);
     remember(optimized);
+
+    // Analyze inspects recorded telemetry and cannot invoke a model, so there is
+    // no spend to authorize. Asking anyway is empty friction, and it teaches
+    // people to click past the prompt that does matter in the other two modes.
+    // Protect still runs its checks and stays open for inspection.
+    if (optimized.mode === "analyze" && optimized.optimizationTarget !== "single_prompt") {
+      let authorized;
+      try {
+        authorized = await optimizationApi.authorize(optimized.runId, humanApproved, false);
+      } catch (reason) {
+        // A safeguard still blocks it — human approval, for instance. Show
+        // Protect so the requirement can be read and answered.
+        navigate("protect");
+        throw reason;
+      }
+      remember(authorized);
+      navigate("run");
+      const started = await optimizationApi.execute(authorized.runId);
+      remember(started); attachStream(started.runId);
+      return;
+    }
     navigate("protect");
   });
   const approvePlan = () => record && void action(async () => {
@@ -231,7 +252,8 @@ export function OptimizationJourney({ initialRunId, onSelectWorkflow }: {
     remember(optimized); navigate("optimize");
   });
   const authorize = () => record && void action(async () => {
-    const authorized = await optimizationApi.authorize(record.runId, humanApproved);
+    const spends = !(record.mode === "analyze" && record.optimizationTarget !== "single_prompt");
+    const authorized = await optimizationApi.authorize(record.runId, humanApproved, spends);
     remember(authorized);
     navigate("run");
     // Authorization is the deliberate decision. Once it is given, executing and

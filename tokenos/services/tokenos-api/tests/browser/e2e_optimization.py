@@ -148,7 +148,7 @@ def quality_and_goal(page):
     )
 
 
-def build_plan(page, api_url):
+def build_plan(page, api_url, spends=True):
     with page.expect_response(lambda response: response.url == api_url + "/api/runs"
                               and response.request.method == "POST") as created:
         page.get_by_role("button", name="Analyze workflow and build an optimization plan", exact=True).click()
@@ -156,7 +156,11 @@ def build_plan(page, api_url):
     assert response.status == 200, response.text()
     # Plan and Optimize compile locally and spend nothing, so the journey runs
     # straight through to the authorization gate. Both stay open for inspection.
-    expect(page.get_by_role("heading", name="Execution safeguards", exact=True)).to_be_visible()
+    # Analyze cannot invoke a model, so it has nothing to authorize and runs on.
+    if spends:
+        expect(page.get_by_role("heading", name="Execution safeguards", exact=True)).to_be_visible()
+    else:
+        expect(page.locator(".optimization-hero").first).to_be_visible(timeout=30000)
     return response.json()["runId"]
 
 
@@ -185,8 +189,13 @@ def approve_to_protect(page, capture=False):
 
 
 def execute_to_prove(page, api_url, run_id, capture=False, authorize="Authorize protected run"):
-    """Authorizing is the single deliberate decision; execution follows from it."""
-    page.get_by_role("button", name=authorize, exact=True).click()
+    """Authorizing is the single deliberate decision; execution follows from it.
+
+    `authorize=None` covers analyze runs, which cannot invoke a model and so are
+    already executing by the time the plan is built.
+    """
+    if authorize:
+        page.get_by_role("button", name=authorize, exact=True).click()
     # The journey lands on Prove by itself once the run finishes.
     expect(page.get_by_role("button", name="Download the full proof", exact=True).or_(
         page.locator(".optimization-hero")
@@ -351,9 +360,9 @@ def test_analyze_mode_remains_telemetry_not_verified_execution(page, browser_ser
     expect(page.get_by_text(hashlib.sha256(telemetry).hexdigest(), exact=True)).to_be_visible()
     page.get_by_label("Current workflow description (required)", exact=True).fill("Inspect historical usage; no replay requested.")
     quality_and_goal(page)
-    run_id = build_plan(page, browser_servers["api"])
-    approve_to_protect(page)
-    proof = execute_to_prove(page, browser_servers["api"], run_id)
+    # Analyze cannot invoke a model, so it has nothing to authorize and runs on.
+    run_id = build_plan(page, browser_servers["api"], spends=False)
+    proof = execute_to_prove(page, browser_servers["api"], run_id, authorize=None)
     assert proof["mode"] == "analyze"
     assert proof["verification"]["passed"] is False
     assert proof["modelUsage"] == []

@@ -65,7 +65,7 @@ def test_every_workflow_example_fills_and_submits_without_edits(page, browser_se
         lambda response: response.url == browser_servers["api"] + "/api/runs"
         and response.request.method == "POST"
     ) as created:
-        run_id = build_plan(page, browser_servers["api"])
+        run_id = build_plan(page, browser_servers["api"], spends=mode != MODE_ANALYZE)
     submitted = created.value.request.post_data_json
     assert submitted["inputs"]["workflowDescription"] == sample["description"]
     assert submitted["inputs"]["desiredOutcome"] == sample["desiredOutcome"]
@@ -74,8 +74,13 @@ def test_every_workflow_example_fills_and_submits_without_edits(page, browser_se
     for key, value in sample["requirements"].items():
         assert submitted["requirements"][key] == value
     state = page.request.get(f"{browser_servers['api']}/api/runs/{run_id}").json()
-    # Plan and Optimize compile automatically; nothing has executed yet.
-    assert state["status"] == "optimized" and state["proof"] is None
+    if mode == MODE_ANALYZE:
+        # Analyze cannot invoke a model, so it needs no authorization and runs on.
+        assert state["status"] == "completed" and state["proof"] is not None
+        assert state["proof"]["modelUsage"] == []
+    else:
+        # Plan and Optimize compile automatically; nothing has executed yet.
+        assert state["status"] == "optimized" and state["proof"] is None
     assert state["currentRoute"]["modelSpendUsd"] is None
     assert state["badges"] == ["Measured sample run"]
 
@@ -128,17 +133,22 @@ def test_sample_catalog_arriving_later_initializes_defaults_once(page, browser_s
 
 @pytest.mark.parametrize("mode", [MODE_ANALYZE, MODE_MEASURE])
 def test_default_example_reaches_proof_without_manual_input(page, browser_servers, mode):
+    analyzing = mode == MODE_ANALYZE
     choose_optimization(page, mode)
     page.get_by_role("button", name="Use a measured example", exact=True).click()
-    run_id = build_plan(page, browser_servers["api"])
-    approve_to_protect(page)
-    proof = execute_to_prove(page, browser_servers["api"], run_id)
+    run_id = build_plan(page, browser_servers["api"], spends=not analyzing)
+    if not analyzing:
+        approve_to_protect(page)
+    proof = execute_to_prove(page, browser_servers["api"], run_id,
+                             authorize=None if analyzing else "Authorize protected run")
     assert proof["modelUsage"] == []
     assert proof["badges"] == ["Measured sample run"]
     assert proof["baseline"]["eligible"] is False
     assert proof["verification"]["passed"] is (mode == MODE_MEASURE)
-    if mode == MODE_ANALYZE:
+    if analyzing:
         assert proof["cost"]["modelSpendUsd"] is None
         expect(page.get_by_role("button", name="Run all-AI comparison", exact=True)).to_have_count(0)
+        # Nothing was spent, so nothing was authorized.
+        expect(page.get_by_role("button", name="Authorize protected run", exact=True)).to_have_count(0)
     else:
         assert proof["verification"]["processed"] == proof["verification"]["total"] == 4

@@ -278,11 +278,17 @@ export function ProtectView({ record, busy, onAuthorize, onRefresh, onEdit, huma
     check.passed || check.id.includes(":model_cost_acknowledgement:") || humanApproved &&
       (check.id.includes(":human_approval:") || check.id.includes(":data_policy:") && record.dataDecision === "approval_required"));
   const isPrompt = record.optimizationTarget === "single_prompt";
+  // Analyze reads recorded telemetry. No model can be invoked, so nothing here
+  // is a spend decision and the screen must not present it as one.
+  const spends = !(record.mode === "analyze" && !isPrompt);
   const plan = record.promptPlan;
   const historyTreatment = plan?.current.components.find((component) => /history/i.test(component.id || component.label))?.candidateTreatment;
   return <>
-    <PhaseIntro heading="Protect the outcome. Authorize the work."
-      supporting="Review the pinned execution contract before any model can be invoked." focusKey="optimization-protect" />
+    <PhaseIntro heading={spends ? "Protect the outcome. Authorize the work." : "Protect the outcome."}
+      supporting={spends
+        ? "Review the pinned execution contract before any model can be invoked."
+        : "Analyzing recorded telemetry cannot invoke a model, so there is no spend to authorize. These checks pin what the analysis may read."}
+      focusKey="optimization-protect" />
     <section className="panel"><SectionHead title="Execution safeguards" supporting="A failed check blocks execution. Fix its stated requirement; TokenOS will never substitute simulated results." />
       <GateList checks={record.safeguards} />
       {isPrompt && <section className="optimization-safeguards" aria-label="Plain-language prompt safeguards">
@@ -296,12 +302,15 @@ export function ProtectView({ record, busy, onAuthorize, onRefresh, onEdit, huma
           ["Maximum spend", dollars(record.maxSpendUsd)]
         ]} />
       </section>}
-      <Facts facts={[
+      <Facts facts={spends ? [
         ["Maximum model spend", dollars(record.maxSpendUsd)],
         ["Conservative total reservation", dollars(record.perCallLimitUsd)],
         ["Maximum advanced calls", numberValue(record.maxAdvancedCalls)],
         ["Output contract", record.outputContract || "Unavailable"],
         ["Maximum output length", record.maxOutputTokens !== undefined ? `${numberValue(record.maxOutputTokens)} tokens` : "Unavailable"],
+        ["Pinned price-table version", record.priceTableVersion || "Unavailable"]
+      ] : [
+        ["Model spend", "None. Analysis cannot invoke a model."],
         ["Pinned price-table version", record.priceTableVersion || "Unavailable"]
       ]} />
       <details><summary>Input manifest and artifact decisions</summary>
@@ -317,14 +326,16 @@ export function ProtectView({ record, busy, onAuthorize, onRefresh, onEdit, huma
         I have reviewed the selected outcomes and grant the required human approval for this run.
       </label>}
       {!eligible && <p className="error-text" role="alert">Execution is blocked. Resolve the failed checks above, then refresh draft safeguards if deployment configuration or pricing changed. Edit requirements to change the inputs or budget. Configuration stays server-side.</p>}
-      {!record.authorized && <p className="muted">Refreshing safeguards re-pins this draft's server configuration and prices without invoking a model. You must still explicitly authorize the protected run.</p>}
+      {!record.authorized && spends && <p className="muted">Refreshing safeguards re-pins this draft's server configuration and prices without invoking a model. You must still explicitly authorize the protected run.</p>}
       <div className="btn-row btn-row-end">
         <button type="button" className="btn" onClick={onEdit} disabled={busy}>Edit requirements</button>
         <button type="button" className="btn" onClick={onRefresh} disabled={busy || record.status !== "optimized" || record.authorized}>Refresh safeguards</button>
-        <button type="button" className="btn btn-primary" onClick={onAuthorize}
+        {(spends || !record.authorized) && <button type="button" className="btn btn-primary" onClick={onAuthorize}
           disabled={busy || !eligible || record.authorized}>
-          {busy ? "Authorizing…" : record.authorized ? "Run authorized" : isPrompt ? "Authorize protected prompt run" : "Authorize protected run"}
-        </button>
+          {busy ? "Authorizing…" : record.authorized ? "Run authorized"
+            : !spends ? "Continue to analysis"
+            : isPrompt ? "Authorize protected prompt run" : "Authorize protected run"}
+        </button>}
       </div>
     </section>
   </>;

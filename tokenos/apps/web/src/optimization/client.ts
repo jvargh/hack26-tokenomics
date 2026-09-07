@@ -457,8 +457,10 @@ export const optimizationApi = {
   async analyze(id: string) { return normalizeRecord(await post(`/api/runs/${encodeURIComponent(id)}/analyze`)); },
   async optimize(id: string) { return normalizeRecord(await post(`/api/runs/${encodeURIComponent(id)}/optimize`, { approvePlan: true })); },
   async refreshSafeguards(id: string) { return normalizeRecord(await post(`/api/runs/${encodeURIComponent(id)}/refresh-safeguards`, {})); },
-  async authorize(id: string, humanApprovalGranted: boolean) {
-    return normalizeRecord(await post(`/api/runs/${encodeURIComponent(id)}/authorize`, { authorizeModelCost: true, humanApprovalGranted }));
+  /** `authorizeModelCost` is a truthful record of what the user permitted, so an
+   * analyze run — which can never call a model — must not claim it was given. */
+  async authorize(id: string, humanApprovalGranted: boolean, authorizeModelCost = true) {
+    return normalizeRecord(await post(`/api/runs/${encodeURIComponent(id)}/authorize`, { authorizeModelCost, humanApprovalGranted }));
   },
   async execute(id: string) { return normalizeRecord(await post(`/api/runs/${encodeURIComponent(id)}/execute`)); },
   async state(id: string) { return normalizeRecord(await request(`/api/runs/${encodeURIComponent(id)}`)); },
