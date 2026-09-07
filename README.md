@@ -20,6 +20,7 @@ the starting point for setup, evaluation, and navigation. The
 - [Try the examples](#try-the-examples)
 - [How the application works](#how-the-application-works)
 - [Economics and claim strength](#economics-and-claim-strength)
+- [Optional Azure deployment](#optional-azure-deployment)
 - [Optional Microsoft Foundry configuration](#optional-microsoft-foundry-configuration)
 - [Configuration and local storage](#configuration-and-local-storage)
 - [Build and test](#build-and-test)
@@ -36,8 +37,9 @@ the starting point for setup, evaluation, and navigation. The
 - A supported **Node.js** release with **npm**; Node.js 22 or newer is recommended.
 - **PowerShell** for the Windows commands below.
 - **Microsoft Edge** for the default Windows browser-test configuration.
-- Azure access and the Azure CLI are **optional**: they are needed only when you
-  configure real Foundry inference, not for the local examples.
+- Azure access, the Azure CLI, and the Azure Developer CLI (`azd`) are
+  **optional**. They are needed only for Azure deployment or real Foundry
+  inference, not for the local examples.
 
 Unless a block says otherwise, start it from this repository's root directory.
 There is no root Node.js package: use the web application's package directory.
@@ -196,11 +198,9 @@ provenance; it does not turn an estimate into provider-measured economics.
 
 Further reading:
 
-- [Prompt evaluator walkthrough](tokenos/samples/PROMPT-OPTIMIZATION-WALKTHROUGH.md)
-- [Workflow evaluator walkthrough](tokenos/samples/OPTIMIZATION-WALKTHROUGH.md)
-- [Sample provenance, upload fixtures, and screenshots](tokenos/samples/README.md)
-- [Representative FAQ requests](tokenos/samples/optimization-requests.json)
-- [Normalized telemetry CSV template](tokenos/samples/normalized-telemetry-template.csv)
+- [Application workflow guide](tokenos/README.md)
+- [Optimization API and configuration](tokenos/services/tokenos-api/OPTIMIZATION-API.md)
+- [Prompt/workflow implementation report](tokenos/PROMPT-OPTIMIZATION-REPORT.md)
 
 ## How the application works
 
@@ -281,10 +281,38 @@ Until then, the UI uses states such as **Comparison not run**,
 compute, storage, and operational effort. Cache eligibility is not a measured
 cache hit; only provider-reported cached tokens establish cache usage.
 
+## Optional Azure deployment
+
+The Azure Developer CLI project configuration is
+[`infra/azure.yaml`](infra/azure.yaml). It deploys the application from
+[`tokenos/`](tokenos/) using the root application
+[`Dockerfile`](tokenos/Dockerfile), while the Bicep entry point and parameters
+remain together under [`infra/`](infra/).
+
+To provision and deploy from the repository root:
+
+```powershell
+Set-Location .\infra
+azd auth login
+azd up
+```
+
+The Bicep deployment creates the resource group and application resources,
+including the container environment, registry, identity, and Container App.
+Foundry integration is optional. When an existing Foundry account is supplied,
+the deployment can grant the application identity access and pass the configured
+endpoint and deployment aliases to the service. It does not create model
+deployments.
+
+Review [`infra/main.parameters.json`](infra/main.parameters.json) before
+deployment. Values such as `TOKENOS_FOUNDRY_ACCOUNT_NAME`,
+`TOKENOS_FOUNDRY_RESOURCE_GROUP_NAME`, `TOKENOS_FOUNDRY_BASE_URL`, and the model
+deployment names are supplied through the selected `azd` environment.
+
 ## Optional Microsoft Foundry configuration
 
 Skip this section for local-only evaluation. It assumes existing model deployments;
-the application does not automatically provision Azure resources.
+the application does not automatically create Foundry model deployments.
 
 The Foundry SDK packages are optional and commented out in the runtime requirements.
 Install them into the API environment when enabling inference:
@@ -446,30 +474,30 @@ Results there are snapshots of executed validation, not promises about a future 
 ```text
 .
 |-- README.md                       This entry point
-|-- .gitignore                      Local/generated-file exclusions
 |-- docs/                           Product and implementation specifications
-|-- tokenos/                        Runnable application
-|   |-- apps/web/                   React, TypeScript, and Vite
-|   |-- services/tokenos-api/       FastAPI, execution, verification, and tests
-|   |-- samples/                    Fixtures, evaluator guides, and screenshots
-|   |-- README.md                   Application-level documentation
-|   |-- AGENTS.md                   Working agreements for code changes
-|   |-- STARTUP.md                  Additional startup/process guidance
-|   |-- WORKINGS.md                 Architecture background
-|   |-- start.ps1                   Convenience launcher
-|   `-- stop.ps1                    Port-based process helper; review before use
-|-- zData/                          Supplementary local reference/sample material
-`-- _bkp/                           Local backups; ignored by Git
+|-- infra/                          Azure Developer CLI and Bicep deployment
+|   |-- azure.yaml                  azd project and service configuration
+|   |-- main.bicep                  Subscription-scope deployment entry point
+|   |-- main.parameters.json        azd environment parameter mapping
+|   |-- resources.bicep             Application infrastructure
+|   `-- foundry-access.bicep        Optional access to an existing Foundry account
+`-- tokenos/                        Runnable application
+    |-- apps/web/                   React, TypeScript, and Vite
+    |-- services/tokenos-api/       FastAPI, execution, verification, and tests
+    |-- README.md                   Application-level documentation
+    |-- AGENTS.md                   Working agreements for code changes
+    |-- STARTUP.md                  Additional startup/process guidance
+    |-- WORKINGS.md                 Architecture background
+    |-- start.ps1                   Convenience launcher
+    `-- stop.ps1                    Port-based process helper; review before use
 ```
 
 Useful directories: [application](tokenos/), [web](tokenos/apps/web/),
 [API](tokenos/services/tokenos-api/), [tests](tokenos/services/tokenos-api/tests/),
-[samples](tokenos/samples/), [specifications](docs/), and [reference data](zData/).
+[infrastructure](infra/), and [specifications](docs/).
 
-The root [`.gitignore`](.gitignore) excludes backups, dependencies, virtual
-environments, generated builds/caches, local environment files, runtime databases,
-logs, and test output. It keeps environment templates, lockfiles, source,
-documentation, sample fixtures, and committed screenshots trackable.
+Local editor settings, helper scripts, private notes, demo assets, backups, and
+supplementary data are intentionally not part of the tracked repository.
 
 ## Documentation guide
 
@@ -478,9 +506,8 @@ documentation, sample fixtures, and committed screenshots trackable.
 | [Application README](tokenos/README.md) | Workflow background and application-level guidance. |
 | [Optimization API and configuration](tokenos/services/tokenos-api/OPTIMIZATION-API.md) | Current prompt/workflow contracts, safeguards, usage, storage, and Foundry setup. |
 | [General API guide](tokenos/services/tokenos-api/API.md) | Existing workflow APIs and compatibility context. |
-| [Prompt walkthrough](tokenos/samples/PROMPT-OPTIMIZATION-WALKTHROUGH.md) | A guided prompt example from Describe to Prove. |
-| [Workflow walkthrough](tokenos/samples/OPTIMIZATION-WALKTHROUGH.md) | Representative workflow analysis and execution. |
-| [Sample index](tokenos/samples/README.md) | Input provenance, upload examples, and screenshots. |
+| [Azure deployment configuration](infra/azure.yaml) | The `azd` project definition for the Bicep infrastructure and TokenOS service. |
+| [Azure deployment entry point](infra/main.bicep) | Resource-group creation, application resources, and optional Foundry access wiring. |
 | [Architecture background](tokenos/WORKINGS.md) | TokenOS's local-first control flow and governance model. |
 | [Prompt/workflow implementation report](tokenos/PROMPT-OPTIMIZATION-REPORT.md) | Delivered work, follow-up fixes, validation results, and limitations. |
 | [Earlier implementation report](tokenos/IMPLEMENTATION-REPORT.md) | Historical workflow-optimization delivery notes. |
