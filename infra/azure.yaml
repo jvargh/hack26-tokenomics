@@ -2,11 +2,11 @@ name: tokenos
 
 infra:
   provider: bicep
-  path: ./infra
+  path: .
 
 services:
   tokenos:
-    project: ./tokenos
+    project: ../tokenos
     language: python
     host: containerapp
     docker:
