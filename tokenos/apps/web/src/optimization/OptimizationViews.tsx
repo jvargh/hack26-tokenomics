@@ -433,6 +433,10 @@ export function ProveView({ record, acknowledged, setAcknowledged, comparing, on
   const fewerCalls = comparison?.baselineCalls !== undefined && comparison?.governedCalls !== undefined
     && comparison.baselineCalls > comparison.governedCalls;
   const promptContextState = promptPlan ? "Kept, minimized, reused, or blocked sections recorded" : "";
+  // A prompt that escalated made several calls, so totals must not be presented
+  // as if they described a single one.
+  const multiCall = (record.modelCalls ?? 0) > 1;
+  const aliasesUsed = Array.from(new Set(record.usage.map((call) => call.alias).filter(Boolean)));
   const heading = isPrompt && eligible ? "Same verified outcome. Lower measured model cost."
     : isPrompt && record.qualityPassed === true ? "Verified prompt outcome. Less unnecessary context. Measured cost proof."
     : record.mode === "analyze" ? "Measured current cost. A locally built optimization plan."
@@ -495,9 +499,11 @@ export function ProveView({ record, acknowledged, setAcknowledged, comparing, on
         <ComparisonCard
           title="What happened to the context"
           value={promptContextState || "Recorded"}
-          chip="No AI tokens used"
+          chip={record.modelCalls === 0 ? "No AI tokens used" : undefined}
           tier="none"
-          note="No AI tokens does not mean free — normal computing and review time still apply."
+          note={record.modelCalls === 0
+            ? "No AI tokens does not mean free — normal computing and review time still apply."
+            : "Context decisions applied before the model was called. Model tokens were still spent on the call itself."}
         />
         <ComparisonCard
           title="Is the answer still correct?"
@@ -580,13 +586,18 @@ export function ProveView({ record, acknowledged, setAcknowledged, comparing, on
       </table></div>
       {!(promptPlan?.changes.length) && <p className="muted">No prompt change explanations are available in the proof.</p>}
       <Facts facts={[
-        ["Actual input / output tokens", `${numberValue(promptProof?.measuredUsage?.inputTokens)} / ${numberValue(promptProof?.measuredUsage?.outputTokens)}`],
-        ["Actual cached / reasoning tokens", `${numberValue(promptProof?.measuredUsage?.cachedInputTokens)} / ${numberValue(promptProof?.measuredUsage?.reasoningTokens)}`],
+        [multiCall ? "Actual input / output tokens (all calls)" : "Actual input / output tokens",
+          `${numberValue(promptProof?.measuredUsage?.inputTokens)} / ${numberValue(promptProof?.measuredUsage?.outputTokens)}`],
+        [multiCall ? "Actual cached / reasoning tokens (all calls)" : "Actual cached / reasoning tokens",
+          `${numberValue(promptProof?.measuredUsage?.cachedInputTokens)} / ${numberValue(promptProof?.measuredUsage?.reasoningTokens)}`],
         ["Final allowed context artifacts", promptPlan ? idList(promptPlan.candidate.eligibleContextIds) : "Unavailable"],
-        ["Model alias used", aliasName(promptProof?.measuredUsage?.alias || record.usage[0]?.alias || "unknown")],
+        [aliasesUsed.length > 1 ? "Model aliases used" : "Model alias used",
+          aliasesUsed.length ? aliasesUsed.map(aliasName).join(", ") : aliasName("unknown")],
         ["Model calls issued", numberValue(record.modelCalls)],
-        ["Actual latency", promptProof?.measuredUsage?.durationMs !== undefined ? `${numberValue(promptProof.measuredUsage.durationMs)} ms` : "Unavailable"],
-        ["Measured cost", dollars(promptProof?.measuredCost?.costUsd ?? promptProof?.measuredCost?.modelSpendUsd ?? record.modelSpendUsd)],
+        [multiCall ? "Actual latency (all calls)" : "Actual latency",
+          promptProof?.measuredUsage?.durationMs !== undefined ? `${numberValue(promptProof.measuredUsage.durationMs)} ms` : "Unavailable"],
+        [multiCall ? "Measured cost (all calls)" : "Measured cost",
+          dollars(promptProof?.measuredCost?.costUsd ?? promptProof?.measuredCost?.modelSpendUsd ?? record.modelSpendUsd)],
         ["Quality-gate status", record.qualityPassed === true ? "Passed" : record.qualityPassed === false ? "Failed" : "Not verified"]
       ]} />
     </section>}

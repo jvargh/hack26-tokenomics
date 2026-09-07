@@ -318,6 +318,47 @@ def test_prompt_plan_and_protect_do_not_call_provider_before_execute(client, mon
     assert state["proof"]["prompt"]["measuredUsage"]["inputTokens"] == 300
 
 
+def test_escalated_prompt_reports_every_call_not_just_the_first(client, monkeypatch):
+    """An escalating prompt makes several calls, and the proof must total them.
+
+    Reporting only the first call understates what the prompt actually cost and
+    contradicts the call count shown beside it.
+    """
+    context = upload_context(client)
+    expected = prompt_payload()["inputs"]["expectedResult"]
+    fake = provider(monkeypatch, expected)
+    original = fake.generate
+
+    async def fail_the_efficient_route(**kwargs):
+        # The efficient answer misses the required citation, forcing escalation.
+        fake.expected = expected if kwargs["route"] == "advanced_ai" else "Unrelated answer."
+        return await original(**kwargs)
+
+    monkeypatch.setattr(fake, "generate", fail_the_efficient_route)
+    payload = prompt_payload([context["fileId"]],
+                             requirements={"allowAdvancedEscalation": True, "maxAdvancedCalls": 1})
+    run_id = prepare(client, payload)
+    assert client.post(f"/api/runs/{run_id}/authorize", json={"authorizeModelCost": True}).status_code == 200
+    client.post(f"/api/runs/{run_id}/execute", json={})
+    state = wait(client, run_id)
+
+    usage = state["proof"]["modelUsage"]
+    assert len(usage) == 2, "This test is meaningless unless the prompt escalated."
+    measured = state["proof"]["prompt"]["measuredUsage"]
+    cost = state["proof"]["prompt"]["measuredCost"]
+
+    assert measured["modelCalls"] == len(usage) == state["proof"]["cost"]["modelCalls"]
+    for field in ("inputTokens", "outputTokens", "cachedInputTokens", "reasoningTokens", "totalTokens", "latencyMs"):
+        assert measured[field] == sum(call[field] for call in usage), field
+    assert measured["deploymentAliases"] == ["tokenos-efficient", "tokenos-advanced"]
+    assert measured["deploymentAlias"] == "multiple"
+    assert measured["providerRequestIds"] == [call["providerRequestId"] for call in usage]
+    # The prompt cost is the run cost. A partial total would flatter TokenOS.
+    assert cost["modelSpendUsd"] == pytest.approx(state["proof"]["cost"]["modelSpendUsd"])
+    assert cost["modelSpendUsd"] == pytest.approx(sum(call["costUsd"] for call in usage))
+    assert cost["modelSpendUsd"] > usage[0]["costUsd"]
+
+
 def test_prompt_same_answer_without_expected_result_blocks_at_protect(client, monkeypatch):
     context = upload_context(client)
     fake = provider(monkeypatch, "unused")

@@ -936,13 +936,25 @@ def _proof(run: dict, result: dict) -> dict:
 
     if run.get("optimizationTarget") == "single_prompt":
         prompt_proof = copy.deepcopy(run.get("_promptProofSeed") or {})
-        first_usage = result["modelUsage"][0] if result["modelUsage"] else None
-        if first_usage and result["usageComplete"]:
-            prompt_proof["measuredUsage"] = {key: first_usage[key] for key in (
-                "inputTokens", "outputTokens", "cachedInputTokens", "reasoningTokens", "totalTokens", "latencyMs",
-                "providerRequestId", "deploymentAlias", "priceTableVersion")}
-            prompt_proof["measuredCost"] = {"modelSpendUsd": first_usage["costUsd"], "modelSpendUsdExact": first_usage["costUsdExact"],
-                                             "priceTableVersion": first_usage["priceTableVersion"]}
+        usages = result["modelUsage"]
+        if usages and result["usageComplete"]:
+            # A prompt can escalate, so the governed run is every call it made.
+            # Reporting only the first understates what the prompt actually cost.
+            totals = {key: sum(usage[key] for usage in usages) for key in (
+                "inputTokens", "outputTokens", "cachedInputTokens", "reasoningTokens", "totalTokens", "latencyMs")}
+            aliases = list(dict.fromkeys(usage["deploymentAlias"] for usage in usages))
+            prompt_proof["measuredUsage"] = {
+                **totals,
+                "providerRequestId": usages[0]["providerRequestId"],
+                "providerRequestIds": [usage["providerRequestId"] for usage in usages],
+                "deploymentAlias": aliases[0] if len(aliases) == 1 else "multiple",
+                "deploymentAliases": aliases,
+                "modelCalls": len(usages),
+                "priceTableVersion": usages[0]["priceTableVersion"],
+            }
+            prompt_proof["measuredCost"] = {"modelSpendUsd": float(measured), "modelSpendUsdExact": str(measured),
+                                             "modelCalls": len(usages),
+                                             "priceTableVersion": usages[0]["priceTableVersion"]}
         decisions = (run.get("promptPlan") or {}).get("contextDecisions", [])
         minimized_or_blocked = sum(item.get("decision") in {"minimize", "block", "approval_required"} for item in decisions)
         context_rate = minimized_or_blocked / len(decisions) if decisions else 0
