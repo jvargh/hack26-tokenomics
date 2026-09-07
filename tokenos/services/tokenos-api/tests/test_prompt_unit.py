@@ -6,6 +6,7 @@ import pytest
 
 from tokenos_api.optimization import prompts
 from tokenos_api.optimization.engine import cost_for_usage
+from tokenos_api.optimization.fixtures import PROMPT_EXAMPLE_REQUIREMENTS
 from tokenos_api.optimization.quality import gate_blockers, verify_output
 
 
@@ -47,6 +48,63 @@ def test_cache_eligibility_and_route_selection():
     assert alias == "tokenos-efficient"
     alias, _ = prompts.route_alias({"currentModel": "advanced", "outputFormat": "code_patch", "userPrompt": "security patch", "desiredOutcome": "fix"}, {}, [])
     assert alias == "tokenos-advanced"
+
+
+def test_output_contract_requires_a_verifiable_decision_when_an_expected_result_is_set():
+    graded = prompts.output_contract("markdown", 400, None, True)
+    assert graded["required"] == ["response", "decision"]
+    assert "decision" in graded["properties"]
+
+
+def test_prose_expected_result_is_blocked_before_any_model_spend():
+    """A prose expectation can never be matched exactly, so TokenOS must refuse to run it."""
+    requirements = {"qualityRequirements": ["same_answer_quality"],
+                    "outputContract": prompts.output_contract("text", 500, None, True), "maxOutputCharacters": 500}
+    item = {"id": "prompt-1", "taskType": "interpretation", "promptMode": True,
+            "context": [{"id": "ctx", "text": "Damaged items qualify for replacement or refund."}],
+            "_expectedResult": "The customer is eligible for replacement or refund under the damaged-on-arrival policy."}
+    assert "free prose" in " ".join(gate_blockers([item], requirements))
+
+    item["_expectedResult"] = "replacement_or_refund"
+    assert not gate_blockers([item], requirements)
+
+    item["_expectedResult"] = "Damaged items qualify for replacement or refund."
+    assert not gate_blockers([item], requirements), "text quoted from approved context is reproducible"
+
+
+def test_outcome_acceptance_grades_the_decision_not_the_prose_wording():
+    """A real model words its reply freely; only the decision value is exact-matched."""
+    requirements = {"qualityRequirements": ["same_answer_quality"],
+                    "outputContract": prompts.output_contract("markdown", 500, None, True), "maxOutputCharacters": 500}
+    item = {"id": "prompt-1", "taskType": "interpretation", "promptMode": True,
+            "context": [{"id": "ctx", "text": "policy"}], "_expectedResult": "replacement_or_refund"}
+
+    accepted = verify_output(item, {"response": "Thanks for getting in touch. Your mixer arrived damaged, so you may "
+                                                "choose a replacement or a refund under policy DOA-14.",
+                                    "decision": "replacement_or_refund", "citations": ["ctx"]}, requirements, 1, False)
+    assert all(check["passed"] for check in accepted), [check for check in accepted if not check["passed"]]
+
+    wrong = verify_output(item, {"response": "Your mixer arrived damaged, so you may choose a replacement or a refund.",
+                                 "decision": "not_eligible", "citations": ["ctx"]}, requirements, 1, False)
+    by_id = {check["id"]: check["passed"] for check in wrong}
+    assert by_id["outcome_acceptance"] is False and by_id["same_answer_quality"] is False, "a wrong decision is never accepted"
+
+
+def test_bundled_prompt_samples_can_actually_be_verified():
+    """Every shipped sample must be able to pass, or it spends real money to fail."""
+    from tokenos_api.optimization.fixtures import PROMPT_FIXTURES
+
+    for example_id, fixture in PROMPT_FIXTURES.items():
+        inputs = fixture["inputs"]
+        artifacts = [({"fileId": f"file_{index}", "filename": item["filename"]}, item["content"].encode())
+                     for index, item in enumerate(fixture["contextArtifacts"], 1)]
+        compiled = prompts.build_prompt_plan(inputs, dict(PROMPT_EXAMPLE_REQUIREMENTS, maxOutputCharacters=2000), artifacts)
+        requirements = dict(PROMPT_EXAMPLE_REQUIREMENTS, maxOutputCharacters=2000,
+                            outputContract=compiled["plan"]["candidate"]["outputContract"])
+        assert not gate_blockers([compiled["request"]], requirements), example_id
+        # The model can only emit the graded value if the approved context defines it.
+        approved = " ".join(source["text"] for source in compiled["request"]["context"])
+        assert inputs["expectedResult"] in approved, example_id
 
 
 def test_prompt_quality_blockers_never_auto_pass():

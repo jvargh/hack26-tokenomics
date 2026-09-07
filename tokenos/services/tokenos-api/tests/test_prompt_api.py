@@ -43,7 +43,7 @@ def prompt_payload(context_ids=None, **overrides):
         "currentModel": "recommend",
         "outputFormat": "markdown",
         "desiredOutcome": "Explain whether a damaged item qualifies for refund.",
-        "expectedResult": "The customer is eligible for replacement or refund under the damaged-on-arrival policy.",
+        "expectedResult": "replacement_or_refund",
     }
     inputs.update(overrides.pop("inputs", {}))
     requirements = {
@@ -107,7 +107,9 @@ class PromptProvider:
         if "originalPromptPackage" in payload:
             context = payload["originalPromptPackage"].get("context", [])
             citations = [item["id"] for item in context] or citations
-        output = {"response": self.expected, "citations": citations[:1]}
+        # A real model words its prose freely and carries the graded value in `decision`.
+        output = {"response": f"Here is the customer-safe reply for call {len(self.calls)}.",
+                  "decision": self.expected, "citations": citations[:1]}
         input_tokens = 700 if "originalPromptPackage" in payload and self.baseline_costlier else 300
         if kwargs["route"] == "advanced_ai" and "originalPromptPackage" not in payload:
             input_tokens = 320
@@ -290,13 +292,15 @@ def test_multiple_keyed_matches_do_not_get_marked_local(client):
 
 
 
-@pytest.mark.parametrize(("fmt", "required"), [("markdown", "response"), ("text", "response"), ("table", "response"), ("code_patch", "response"), ("json", "decision"), ("custom", "decision")])
+@pytest.mark.parametrize(("fmt", "required"), [("markdown", ["response", "decision"]), ("text", ["response", "decision"]),
+                                               ("table", ["response", "decision"]), ("code_patch", ["response", "decision"]),
+                                               ("json", ["decision"]), ("custom", ["decision"])])
 def test_output_contract_per_format(client, fmt, required):
     context = upload_context(client)
     payload = prompt_payload([context["fileId"]], inputs={"outputFormat": fmt}, requirements={"qualityRequirements": ["structured_output"]})
     run_id = prepare(client, payload)
     state = client.get(f"/api/runs/{run_id}").json()
-    assert state["promptPlan"]["candidate"]["outputContract"]["required"] == [required]
+    assert state["promptPlan"]["candidate"]["outputContract"]["required"] == required
 
 
 def test_prompt_plan_and_protect_do_not_call_provider_before_execute(client, monkeypatch):

@@ -86,7 +86,8 @@ def has_secret(value: object) -> bool:
     return changed
 
 
-def output_contract(output_format: str, max_output_characters: int, supplied: dict[str, Any] | None = None) -> dict[str, Any]:
+def output_contract(output_format: str, max_output_characters: int, supplied: dict[str, Any] | None = None,
+                    require_decision: bool = False) -> dict[str, Any]:
     if output_format in {"json", "custom"}:
         if supplied and supplied.get("type") == "object" and "properties" in supplied:
             return supplied
@@ -100,11 +101,14 @@ def output_contract(output_format: str, max_output_characters: int, supplied: di
             },
             "additionalProperties": False,
         }
+    # A prose answer cannot be exact-matched, so a prompt that asks TokenOS to verify its
+    # answer must also carry a discrete decision value that verification can compare.
     return {
         "type": "object",
-        "required": ["response"],
+        "required": ["response", "decision"] if require_decision else ["response"],
         "properties": {
             "response": {"type": "string", "maxLength": max_output_characters},
+            "decision": {"type": "string", "maxLength": max_output_characters},
             "citations": {"type": "array", "items": {"type": "string"}},
         },
         "additionalProperties": False,
@@ -401,7 +405,8 @@ def build_prompt_plan(inputs: dict, requirements: dict, artifacts: list[tuple[di
         {"id": "tools", "label": "Tool definitions", "estimatedTokens": 0,
          "candidateTreatment": "Limit to allowed tools", "reason": "Prompt mode does not expose tool definitions to the model."},
     ]
-    contract = output_contract(inputs.get("outputFormat") or "text", requirements["maxOutputCharacters"], requirements.get("outputContract"))
+    contract = output_contract(inputs.get("outputFormat") or "text", requirements["maxOutputCharacters"],
+                               requirements.get("outputContract"), bool(inputs.get("expectedResult")))
     governed_system = governed_system_prompt(contract, requirements["maxOutputCharacters"])
     allowed_ids = [item["id"] for item in allowed_context]
     minimized_ids = [item["id"] for item in minimized]
@@ -521,7 +526,8 @@ def build_prompt_plan(inputs: dict, requirements: dict, artifacts: list[tuple[di
 
 
 def provider_payload_for_prompt(item: dict, requirements: dict, *, baseline: bool = False, baseline_package: dict | None = None) -> tuple[str, str]:
-    contract = output_contract(item.get("_outputFormat", "text"), requirements["maxOutputCharacters"], requirements.get("outputContract"))
+    contract = output_contract(item.get("_outputFormat", "text"), requirements["maxOutputCharacters"],
+                               requirements.get("outputContract"), bool(item.get("_expectedResult")))
     system = governed_system_prompt(contract, requirements["maxOutputCharacters"])
     if not baseline:
         document = {"taskType": item["taskType"], "input": item["input"], "context": item.get("context", [])}

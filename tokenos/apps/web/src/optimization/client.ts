@@ -317,7 +317,7 @@ export function normalizeRecord(value: unknown): OptimizationRecord {
     processed: number(verification.processed), total: number(verification.total), exceptions: strings(verification.exceptions),
     outcomes: array(run.outcomes).map((entry) => {
       const outcome = object(entry); const output = object(outcome.output);
-      return { requestId: text(outcome.requestId), decision: text(output.decision, "No decision produced"),
+      return { requestId: text(outcome.requestId), decision: text(output.decision) || text(output.response, "No decision produced"),
         citations: strings(output.citations), diagnosis: text(output.diagnosis), passed: outcome.passed === true };
     }),
     modelCalls,

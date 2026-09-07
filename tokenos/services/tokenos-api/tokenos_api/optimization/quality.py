@@ -136,6 +136,26 @@ def local_result(item: dict) -> tuple[dict | None, dict]:
     return None, {"method": "local_eligibility", "reason": "No deterministic rule proves this request's required outcome."}
 
 
+MAX_DECISION_WORDS = 6
+MAX_DECISION_CHARACTERS = 64
+
+
+def expected_result_is_verifiable(item: dict) -> bool:
+    """Exact-match acceptance can only pass if the model is able to produce the value.
+
+    That holds for a short decision value the policy defines, or for a longer string the
+    model can copy verbatim out of approved context. Free prose that appears nowhere in
+    context can never match exactly, so the run would spend money only to fail.
+    """
+    expected = str(item.get("_expectedResult") or "").strip()
+    if not expected:
+        return False
+    if ("\n" not in expected and len(expected) <= MAX_DECISION_CHARACTERS
+            and len(expected.split()) <= MAX_DECISION_WORDS):
+        return True
+    return any(expected in str(source.get("text") or "") for source in item.get("context") or [])
+
+
 def gate_blockers(requests: list[dict], requirements: dict) -> list[str]:
     blockers = [f"Unsupported quality criterion: {name}. Register an outcome verifier before execution."
                 for name in requirements["qualityRequirements"] if name not in SUPPORTED_GATES]
@@ -147,6 +167,11 @@ def gate_blockers(requests: list[dict], requirements: dict) -> list[str]:
     if prompt_mode:
         if "same_answer_quality" in requirements["qualityRequirements"] and not any(item.get("_expectedResult") for item in requests):
             blockers.append("same_answer_quality for a prompt requires inputs.expectedResult so TokenOS can verify the answer instead of auto-passing it.")
+        if any(item.get("_expectedResult") and not expected_result_is_verifiable(item) for item in requests):
+            blockers.append(
+                "inputs.expectedResult is free prose that no model can be expected to reproduce word for word, so outcome "
+                "acceptance could never pass and the run would spend money only to fail. Use the short decision value your "
+                "policy defines, or text that appears verbatim in approved context.")
         if "required_tests" in requirements["qualityRequirements"]:
             blockers.append("required_tests is unsupported for a single prompt. Provide a workflow test adapter or remove that prompt gate.")
         if "grounded_citations" in requirements["qualityRequirements"] and any(not item.get("context") for item in requests):
