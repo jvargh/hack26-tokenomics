@@ -1,5 +1,5 @@
 /**
- * Client for the local TokenOS API.
+ * Client for the TokenOS API.
  *
  * The browser never calculates authoritative results: it uploads real input,
  * asks the API to analyze and run, and renders what the server reports.
@@ -22,14 +22,16 @@ import {
 } from "./types";
 
 export const API_BASE: string =
-  (import.meta.env.VITE_TOKENOS_API_BASE as string | undefined) ?? "http://localhost:8000";
+  (import.meta.env.VITE_TOKENOS_API_BASE as string | undefined) ??
+  (import.meta.env.DEV ? "http://localhost:8000" : "");
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API_BASE}${path}`, init);
   } catch {
-    throw new ApiError(`The local TokenOS API at ${API_BASE} could not be reached.`, 0);
+    const endpoint = API_BASE || window.location.origin;
+    throw new ApiError(`The TokenOS API at ${endpoint} could not be reached.`, 0);
   }
 
   if (!response.ok) {

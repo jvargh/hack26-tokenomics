@@ -1,18 +1,19 @@
 import { API_BASE } from "../api/client";
 import { useRun } from "../state/runContext";
 
-/** Replaces the old run-source selector with real local API status. */
+/** Replaces the old run-source selector with real API status. */
 export function ApiHealthIndicator({ onConfigure }: { onConfigure?: () => void }) {
   const { health, refreshHealth } = useRun();
+  const endpointLabel = API_BASE || "Same origin";
 
   const label =
     health.state === "checking"
-      ? "Checking local TokenOS API"
+      ? "Checking TokenOS API"
       : health.state === "offline"
-        ? "Local API offline"
+        ? "TokenOS API offline"
         : health.health.foundryAvailable
-          ? "Local API ready · Foundry connected"
-          : "Local TokenOS API ready · Foundry not configured";
+          ? "TokenOS API ready · Foundry connected"
+          : "TokenOS API ready · Foundry not configured";
 
   const tone =
     health.state === "checking" ? "is-checking" : health.state === "offline" ? "is-offline" : "is-ready";
@@ -25,7 +26,7 @@ export function ApiHealthIndicator({ onConfigure }: { onConfigure?: () => void }
       </div>
       {health.state === "ready" ? (
         <p className="muted api-health-detail">
-          {API_BASE} · v{health.health.version} ·{" "}
+          {endpointLabel} · v{health.health.version} ·{" "}
           {/* Same line in every workflow. Deployment bindings are a server
               concern, and the UI refers to models by alias, not by raw name. */}
           {health.health.foundryAvailable ? (

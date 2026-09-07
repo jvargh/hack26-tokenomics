@@ -1,0 +1,15 @@
+.git
+.azure
+**/.env
+**/.env.*
+!**/.env.example
+**/.venv
+**/node_modules
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/dist
+**/test-results
+**/playwright-report
+**/*.log
+services/tokenos-api/tests

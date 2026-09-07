@@ -1,0 +1,14 @@
+name: tokenos
+
+infra:
+  provider: bicep
+  path: ./infra
+
+services:
+  tokenos:
+    project: ./tokenos
+    language: python
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: .

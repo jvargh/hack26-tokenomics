@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from .config import settings
@@ -713,6 +714,8 @@ def create_app() -> FastAPI:
 
     app.include_router(api)
     app.include_router(optimization_router)
+    if settings.web_dist_root.is_dir():
+        app.mount("/", StaticFiles(directory=settings.web_dist_root, html=True), name="web")
     return app
 
 

@@ -3,6 +3,9 @@ uvicorn[standard]>=0.32
 python-multipart>=0.0.12
 pydantic>=2.9
 
-# Optional, only needed when TOKENOS_MODEL_MODE=foundry
+# Optional, only needed when TOKENOS_MODEL_MODE=foundry.
+# Installed in the container image from tokenos/vendor-wheels/ (see that folder's
+# README) rather than from this file, since PyPI is not reachable from the build
+# network in this environment. Keep the version bounds here for local dev with pip.
 # openai>=1.54
 # azure-identity>=1.19

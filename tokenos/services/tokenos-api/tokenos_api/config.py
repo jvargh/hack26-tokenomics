@@ -114,6 +114,11 @@ class Settings:
             os.getenv("TOKENOS_STORAGE_ROOT", str(Path.home() / ".tokenos" / "runtime"))
         )
     )
+    web_dist_root: Path = field(
+        default_factory=lambda: Path(
+            os.getenv("TOKENOS_WEB_DIST_ROOT", str(SERVICE_ROOT / "static"))
+        )
+    )
 
     @property
     def foundry_configured(self) -> bool:

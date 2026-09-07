@@ -15,7 +15,7 @@ const SOURCE_LABEL: Record<InputSource, string> = {
 };
 
 const SOURCE_HELP: Record<InputSource, string> = {
-  upload: "Your files are sent to the local TokenOS API, validated, and analyzed there.",
+  upload: "Your files are sent to the TokenOS API, validated, and analyzed there.",
   connected:
     "This connects to an application registered with TokenOS. It does not automatically connect to an Azure subscription.",
   sample: "Bundled input processed by the real engine. Results are labelled Measured sample run."
@@ -215,7 +215,7 @@ export function DescribePhase({ onSelectOptimization, initialWorkflowId = "" }: 
           supporting={
             health.state === "offline"
               ? "Start the TokenOS API on http://localhost:8000. The UI does not generate substitute results."
-              : "Loading workflows from the local TokenOS API..."
+              : "Loading workflows from the TokenOS API..."
           }
           focusKey="describe"
         />
@@ -630,7 +630,7 @@ export function DescribePhase({ onSelectOptimization, initialWorkflowId = "" }: 
             outcome and required fields defined
           </li>
           <li className={apiReady ? "is-ready" : ""}>
-            <span aria-hidden="true">{apiReady ? "✓" : "•"}</span> Local TokenOS API available
+            <span aria-hidden="true">{apiReady ? "✓" : "•"}</span> TokenOS API available
           </li>
         </ul>
 

@@ -637,7 +637,7 @@ export function OptimizationDescribe({
         <ul className="readiness" aria-live="polite">
           <li className={inputReady ? "is-ready" : ""}>{inputReady ? "✓" : "•"} {isPrompt ? "Prompt source supplied" : "Required source supplied"}</li>
           <li className={requirementsReady ? "is-ready" : ""}>{requirementsReady ? "✓" : "•"} Outcome and quality requirements defined</li>
-          <li className={ready ? "is-ready" : ""}>{ready ? "✓" : "•"} Local TokenOS API available</li>
+          <li className={ready ? "is-ready" : ""}>{ready ? "✓" : "•"} TokenOS API available</li>
         </ul>
         <div className="btn-row btn-row-end">
           {spends && <p className="muted optimization-authorize-note">
