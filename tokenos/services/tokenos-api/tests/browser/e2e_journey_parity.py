@@ -4,9 +4,9 @@ Run explicitly: python -m pytest -c pytest-browser.ini tests/browser/e2e_journey
 
 Two properties are protected here:
 
-  1. A sample run reaches Prove without clicking a button on every phase. The
-     one exception is the authorization gate, because that is where model cost
-     is committed and the product's whole argument depends on it being explicit.
+  1. A sample run reaches Prove from a single click. The Describe action is
+     where model cost is authorized, so the decision is still explicit; it just
+     is not repeated on a later phase.
 
   2. The optimization Prove screen uses the same before/after presentation as
      the other workflows, so a user does not learn two different layouts.
@@ -18,6 +18,8 @@ import re
 
 import pytest
 from playwright.sync_api import expect
+
+from e2e_optimization import START_MEASURE, START_PROMPT
 
 OPTIMIZE = "Optimize an existing AI workflow"
 DEADLINE = "Process records by a deadline"
@@ -41,20 +43,14 @@ def stepper_states(page):
     )
 
 
-def test_sample_run_reaches_prove_with_one_authorization_click(page, browser_servers):
-    """Two deliberate clicks: submit the work, then authorize the spend."""
+def test_sample_run_reaches_prove_with_one_click(page, browser_servers):
+    """One deliberate click: submitting the work also authorizes its spend."""
     open_optimization(page)
     page.get_by_role("button", name="Use a measured example", exact=True).click()
 
-    page.get_by_role(
-        "button", name="Analyze workflow and build an optimization plan", exact=True
-    ).click()
-    # Plan and Optimize compile on their own; the journey stops at the gate.
-    expect(page.get_by_role("heading", name="Execution safeguards", exact=True)).to_be_visible()
+    page.get_by_role("button", name=START_MEASURE, exact=True).click()
 
-    page.get_by_role("button", name="Authorize protected run", exact=True).click()
-
-    # Execution, verification and the proof follow without further prompting.
+    # Every remaining phase follows without further prompting.
     expect(page.locator(".optimization-hero")).to_be_visible(timeout=30000)
     expect(page.locator(".work-avoided")).to_be_visible()
 
@@ -62,7 +58,7 @@ def test_sample_run_reaches_prove_with_one_authorization_click(page, browser_ser
         assert step["reached"], f"{step['label']} was never reached"
 
 
-def test_prompt_example_reaches_prove_with_one_authorization_click(page, browser_servers):
+def test_prompt_example_reaches_prove_with_one_click(page, browser_servers):
     open_optimization(page, PROMPT)
     page.get_by_role("button", name="Use a prompt example", exact=True).click()
     examples = page.request.get(
@@ -71,37 +67,33 @@ def test_prompt_example_reaches_prove_with_one_authorization_click(page, browser
     lookup = next(item for item in examples if item["id"] == "repeated_policy_lookup")
     page.get_by_role("radio", name=re.compile("^" + re.escape(lookup["title"]))).check()
 
-    page.get_by_role("button", name="Build prompt optimization plan", exact=True).click()
-    expect(page.get_by_role("heading", name="Execution safeguards", exact=True)).to_be_visible()
-
-    page.get_by_role("button", name="Authorize protected prompt run", exact=True).click()
+    page.get_by_role("button", name=START_PROMPT, exact=True).click()
     expect(page.locator(".optimization-hero")).to_be_visible(timeout=30000)
 
     for step in stepper_states(page):
         assert step["reached"], f"{step['label']} was never reached"
 
 
-def test_no_model_runs_before_the_authorization_click(page, browser_servers):
-    """Auto-advancing must never reach past the gate on its own."""
+def test_no_model_runs_without_a_recorded_authorization(page, browser_servers):
+    """A run held by a failed safeguard is never authorized and never executes."""
     open_optimization(page)
     page.get_by_role("button", name="Use a measured example", exact=True).click()
+    page.get_by_role("radio", name=re.compile("^Policy document review")).check()
 
     with page.expect_response(
         lambda response: response.url == browser_servers["api"] + "/api/runs"
         and response.request.method == "POST"
     ) as created:
-        page.get_by_role(
-            "button", name="Analyze workflow and build an optimization plan", exact=True
-        ).click()
+        page.get_by_role("button", name=START_MEASURE, exact=True).click()
     run_id = created.value.json()["runId"]
 
-    expect(page.get_by_role("heading", name="Execution safeguards", exact=True)).to_be_visible()
+    expect(page.get_by_role("heading", name="Execution safeguards", exact=True)).to_be_visible(timeout=30000)
     state = page.request.get(f"{browser_servers['api']}/api/runs/{run_id}").json()
-    assert state["status"] == "optimized", "The draft must stop before authorization."
+    assert state["status"] == "optimized", "A blocked draft must not execute."
     assert state["proof"] is None
     assert not state.get("modelUsage")
 
-    # The server refuses execution until the gate is passed.
+    # The server refuses execution until an authorization is recorded.
     assert page.request.post(
         f"{browser_servers['api']}/api/runs/{run_id}/execute",
         data="{}",
@@ -113,10 +105,7 @@ def test_optimization_prove_matches_the_shared_layout(page, browser_servers):
     """Both Prove surfaces use the same components, so users learn one layout."""
     open_optimization(page)
     page.get_by_role("button", name="Use a measured example", exact=True).click()
-    page.get_by_role(
-        "button", name="Analyze workflow and build an optimization plan", exact=True
-    ).click()
-    page.get_by_role("button", name="Authorize protected run", exact=True).click()
+    page.get_by_role("button", name=START_MEASURE, exact=True).click()
     expect(page.locator(".optimization-hero")).to_be_visible(timeout=30000)
 
     # The same primitives as the legacy Prove screen.
@@ -152,10 +141,7 @@ def test_legacy_and_optimization_prove_share_card_titles(page, browser_servers):
     page.get_by_role("button", name="New run", exact=True).click()
     open_optimization(page)
     page.get_by_role("button", name="Use a measured example", exact=True).click()
-    page.get_by_role(
-        "button", name="Analyze workflow and build an optimization plan", exact=True
-    ).click()
-    page.get_by_role("button", name="Authorize protected run", exact=True).click()
+    page.get_by_role("button", name=START_MEASURE, exact=True).click()
     expect(page.locator(".optimization-hero")).to_be_visible(timeout=30000)
 
     optimization_titles = page.locator(".prove-cards .comparison-card-title").all_inner_texts()

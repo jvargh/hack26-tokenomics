@@ -285,9 +285,11 @@ export function ProtectView({ record, busy, onAuthorize, onRefresh, onEdit, huma
   const historyTreatment = plan?.current.components.find((component) => /history/i.test(component.id || component.label))?.candidateTreatment;
   return <>
     <PhaseIntro heading={spends ? "Protect the outcome. Authorize the work." : "Protect the outcome."}
-      supporting={spends
-        ? "Review the pinned execution contract before any model can be invoked."
-        : "Analyzing recorded telemetry cannot invoke a model, so there is no spend to authorize. These checks pin what the analysis may read."}
+      supporting={!spends
+        ? "Analyzing recorded telemetry cannot invoke a model, so there is no spend to authorize. These checks pin what the analysis may read."
+        : record.authorized
+          ? "These checks were pinned and passed before any model was invoked, under the authorization given when the run was started."
+          : "Review the pinned execution contract before any model can be invoked."}
       focusKey="optimization-protect" />
     <section className="panel"><SectionHead title="Execution safeguards" supporting="A failed check blocks execution. Fix its stated requirement; TokenOS will never substitute simulated results." />
       <GateList checks={record.safeguards} />
@@ -326,7 +328,7 @@ export function ProtectView({ record, busy, onAuthorize, onRefresh, onEdit, huma
         I have reviewed the selected outcomes and grant the required human approval for this run.
       </label>}
       {!eligible && <p className="error-text" role="alert">Execution is blocked. Resolve the failed checks above, then refresh draft safeguards if deployment configuration or pricing changed. Edit requirements to change the inputs or budget. Configuration stays server-side.</p>}
-      {!record.authorized && spends && <p className="muted">Refreshing safeguards re-pins this draft's server configuration and prices without invoking a model. You must still explicitly authorize the protected run.</p>}
+      {!record.authorized && spends && <p className="muted">This run stopped here because a check above still needs an answer. Resolve it, then authorize. Refreshing safeguards re-pins this draft's server configuration and prices without invoking a model.</p>}
       <div className="btn-row btn-row-end">
         <button type="button" className="btn" onClick={onEdit} disabled={busy}>Edit requirements</button>
         <button type="button" className="btn" onClick={onRefresh} disabled={busy || record.status !== "optimized" || record.authorized}>Refresh safeguards</button>

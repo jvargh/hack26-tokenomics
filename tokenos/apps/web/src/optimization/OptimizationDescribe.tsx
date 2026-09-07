@@ -345,7 +345,14 @@ export function OptimizationDescribe({
     }
   }
 
-  const buttonCopy = isPrompt ? "Build prompt optimization plan" : "Analyze workflow and build an optimization plan";
+  // Analysis reads recorded telemetry and can never invoke a model, so it has no
+  // spend to authorize. Prompt and measure runs can, so this button is the single
+  // explicit authorization: the journey runs end to end from here, and the exact
+  // ceiling being permitted is stated next to it.
+  const spends = !currentWorkflow || isPrompt;
+  const buttonCopy = !spends ? "Analyze workflow and build an optimization plan"
+    : isPrompt ? "Authorize and run the governed prompt"
+    : "Authorize and run the governed workflow";
   const workflowSources = currentWorkflow ? CURRENT_WORKFLOW_SOURCES : MEASURED_WORKFLOW_SOURCES;
 
   return (
@@ -632,10 +639,15 @@ export function OptimizationDescribe({
           <li className={requirementsReady ? "is-ready" : ""}>{requirementsReady ? "✓" : "•"} Outcome and quality requirements defined</li>
           <li className={ready ? "is-ready" : ""}>{ready ? "✓" : "•"} Local TokenOS API available</li>
         </ul>
-        <div className="btn-row btn-row-end"><button className="btn btn-primary" type="button"
-          disabled={!ready || !inputReady || !requirementsReady || uploading || busy} onClick={onSubmit}>
-          {busy ? "Building the local plan…" : buttonCopy}
-        </button></div>
+        <div className="btn-row btn-row-end">
+          {spends && <p className="muted optimization-authorize-note">
+            Authorizes up to {`$${Number(draft.maxSpend || 0).toFixed(2)}`} of model spend on the route TokenOS selects. Plan, Optimize and Protect are checked first and stay open for inspection.
+          </p>}
+          <button className="btn btn-primary" type="button"
+            disabled={!ready || !inputReady || !requirementsReady || uploading || busy} onClick={onSubmit}>
+            {busy ? "Building the local plan…" : buttonCopy}
+          </button>
+        </div>
       </section>
     </fieldset>
   );

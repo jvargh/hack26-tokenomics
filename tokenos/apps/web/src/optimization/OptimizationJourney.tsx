@@ -219,33 +219,29 @@ export function OptimizationJourney({ initialRunId, onSelectWorkflow }: {
     remember(described);
     const planned = await optimizationApi.analyze(described.runId);
     remember(planned);
-    // Plan and Optimize are local and deterministic — compiling them spends
-    // nothing — so the journey runs straight through to the one gate that
-    // actually commits model cost. Both phases stay open for inspection.
+    // Plan, Optimize and Protect are local and deterministic — compiling and
+    // checking them spends nothing. The Describe button is the explicit
+    // authorization for the model spend that follows, so the journey runs end
+    // to end from that single decision. Every phase stays open for inspection.
     const optimized = await optimizationApi.optimize(planned.runId);
     remember(optimized);
 
-    // Analyze inspects recorded telemetry and cannot invoke a model, so there is
-    // no spend to authorize. Asking anyway is empty friction, and it teaches
-    // people to click past the prompt that does matter in the other two modes.
-    // Protect still runs its checks and stays open for inspection.
-    if (optimized.mode === "analyze" && optimized.optimizationTarget !== "single_prompt") {
-      let authorized;
-      try {
-        authorized = await optimizationApi.authorize(optimized.runId, humanApproved, false);
-      } catch (reason) {
-        // A safeguard still blocks it — human approval, for instance. Show
-        // Protect so the requirement can be read and answered.
-        navigate("protect");
-        throw reason;
-      }
-      remember(authorized);
-      navigate("run");
-      const started = await optimizationApi.execute(authorized.runId);
-      remember(started); attachStream(started.runId);
-      return;
+    // Analysis cannot invoke a model, so it authorizes no model cost. Recording
+    // otherwise would put a permission in the proof that was never granted.
+    const spends = optimized.mode !== "analyze" || optimized.optimizationTarget === "single_prompt";
+    let authorized;
+    try {
+      authorized = await optimizationApi.authorize(optimized.runId, humanApproved, spends);
+    } catch (reason) {
+      // A safeguard still blocks the run — human approval, for instance. Show
+      // Protect so the requirement can be read and answered.
+      navigate("protect");
+      throw reason;
     }
-    navigate("protect");
+    remember(authorized);
+    navigate("run");
+    const started = await optimizationApi.execute(authorized.runId);
+    remember(started); attachStream(started.runId);
   });
   const approvePlan = () => record && void action(async () => {
     const optimized = await optimizationApi.optimize(record.runId);

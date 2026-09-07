@@ -27,6 +27,13 @@ MODE_ANALYZE = "Analyze current workflow"
 MODE_PROMPT = "Optimize a prompt before you run it"
 MODE_MEASURE = "Measure an optimized workflow"
 
+# The Describe action is the single explicit authorization for the model spend a
+# run may make, so its wording states what it commits to.
+START_ANALYZE = "Analyze workflow and build an optimization plan"
+START_MEASURE = "Authorize and run the governed workflow"
+START_PROMPT = "Authorize and run the governed prompt"
+START_BUTTON = {MODE_ANALYZE: START_ANALYZE, MODE_MEASURE: START_MEASURE, MODE_PROMPT: START_PROMPT}
+
 
 def choose_mode(page, title):
     """Prompt mode is the default, so workflow tests select their mode explicitly."""
@@ -107,9 +114,7 @@ def test_input_paths_and_required_description(page):
     quality_and_goal(page)
     page.get_by_role("button", name=re.compile("^Use a measured example")).click()
     page.get_by_role("radio", name=re.compile("^Repeated customer-assistance prompts")).check()
-    action = page.get_by_role(
-        "button", name="Analyze workflow and build an optimization plan", exact=True
-    )
+    action = page.get_by_role("button", name=START_MEASURE, exact=True)
     expect(action).to_be_enabled()
     description = page.get_by_label(re.compile("^Current workflow description"))
     description.fill("")
@@ -148,19 +153,30 @@ def quality_and_goal(page):
     )
 
 
-def build_plan(page, api_url, spends=True):
+def build_plan(page, api_url, start=START_MEASURE):
+    """Starts a run and waits for the journey to finish on its own.
+
+    Describe carries the authorization, so Plan, Optimize, Protect, Run, Verify
+    and Prove all follow from this one click. Every phase stays open for
+    inspection afterwards through the stepper.
+    """
     with page.expect_response(lambda response: response.url == api_url + "/api/runs"
                               and response.request.method == "POST") as created:
-        page.get_by_role("button", name="Analyze workflow and build an optimization plan", exact=True).click()
+        page.get_by_role("button", name=start, exact=True).click()
     response = created.value
     assert response.status == 200, response.text()
-    # Plan and Optimize compile locally and spend nothing, so the journey runs
-    # straight through to the authorization gate. Both stay open for inspection.
-    # Analyze cannot invoke a model, so it has nothing to authorize and runs on.
-    if spends:
-        expect(page.get_by_role("heading", name="Execution safeguards", exact=True)).to_be_visible()
-    else:
-        expect(page.locator(".optimization-hero").first).to_be_visible(timeout=30000)
+    expect(page.locator(".optimization-hero").first).to_be_visible(timeout=30000)
+    return response.json()["runId"]
+
+
+def build_plan_to_protect(page, api_url, start=START_MEASURE):
+    """Starts a run that a safeguard is expected to stop at Protect."""
+    with page.expect_response(lambda response: response.url == api_url + "/api/runs"
+                              and response.request.method == "POST") as created:
+        page.get_by_role("button", name=start, exact=True).click()
+    response = created.value
+    assert response.status == 200, response.text()
+    expect(page.get_by_role("heading", name="Execution safeguards", exact=True)).to_be_visible(timeout=30000)
     return response.json()["runId"]
 
 
@@ -173,7 +189,7 @@ def open_optimization_phase(page, name):
 
 
 def approve_to_protect(page, capture=False):
-    """Visits the auto-compiled Plan and Optimize phases, then returns to Protect."""
+    """Revisits the phases the journey completed on its own, ending on Protect."""
     open_optimization_phase(page, "Plan")
     expect(page.get_by_role("heading", name="Current workflow map", exact=True)).to_be_visible()
     if capture:
@@ -188,11 +204,11 @@ def approve_to_protect(page, capture=False):
         screenshot(page, "04-protect")
 
 
-def execute_to_prove(page, api_url, run_id, capture=False, authorize="Authorize protected run"):
-    """Authorizing is the single deliberate decision; execution follows from it.
+def execute_to_prove(page, api_url, run_id, capture=False, authorize=None):
+    """Waits for Prove. The run is already executing unless a safeguard held it.
 
-    `authorize=None` covers analyze runs, which cannot invoke a model and so are
-    already executing by the time the plan is built.
+    Pass `authorize` only for runs deliberately blocked at Protect, where the
+    user must answer the safeguard and then authorize by hand.
     """
     if authorize:
         page.get_by_role("button", name=authorize, exact=True).click()
@@ -210,11 +226,12 @@ def execute_to_prove(page, api_url, run_id, capture=False, authorize="Authorize 
     return proof
 
 
-def sample_plan(page, api_url, title="Repeated customer-assistance prompts with reusable context"):
+def sample_plan(page, api_url, title="Repeated customer-assistance prompts with reusable context", to_protect=False):
     choose_optimization(page)
     page.get_by_role("radio", name=re.compile("^" + title)).check()
     quality_and_goal(page)
-    return build_plan(page, api_url)
+    start = build_plan_to_protect if to_protect else build_plan
+    return start(page, api_url)
 
 
 def test_seven_phases_sse_proof_baseline_and_history(page, browser_servers):
@@ -225,10 +242,13 @@ def test_seven_phases_sse_proof_baseline_and_history(page, browser_servers):
     quality_and_goal(page)
     page.get_by_label("Expected recurring volume (optional)", exact=True).fill("10000")
     run_id = build_plan(page, browser_servers["api"])
-    approve_to_protect(page, capture=True)
-    page.get_by_role("button", name="Refresh safeguards", exact=True).click()
-    expect(page.get_by_role("button", name="Authorize protected run", exact=True)).to_be_enabled()
     proof = execute_to_prove(page, browser_servers["api"], run_id, capture=True)
+    # The completed phases stay open for inspection, and Protect records that
+    # the run was authorized rather than offering to authorize it again.
+    approve_to_protect(page, capture=True)
+    expect(page.get_by_role("button", name="Refresh safeguards", exact=True)).to_be_disabled()
+    expect(page.get_by_role("button", name="Run authorized", exact=True)).to_be_disabled()
+    open_optimization_phase(page, "Prove")
     expect(page.get_by_role("heading", name="Verified outcome. Minimal AI use. Measured cost proof.", exact=True)).to_be_visible()
     assert proof["verification"]["passed"] is True
     assert proof["verification"]["processed"] == proof["verification"]["total"] == 4
@@ -278,8 +298,8 @@ def test_seven_phases_sse_proof_baseline_and_history(page, browser_servers):
     "High-volume classification with a small ambiguous subset",
 ])
 def test_real_ambiguities_block_without_foundry(page, browser_servers, title):
-    run_id = sample_plan(page, browser_servers["api"], title)
-    approve_to_protect(page)
+    # A failed safeguard stops the run at Protect instead of letting it execute.
+    run_id = sample_plan(page, browser_servers["api"], title, to_protect=True)
     expect(page.get_by_role("button", name="Authorize protected run", exact=True)).to_be_disabled()
     expect(page.get_by_text("Foundry is unavailable. Configure server-side deployments and credentials.", exact=True)).to_be_visible()
     state = page.request.get(f"{browser_servers['api']}/api/runs/{run_id}").json()
@@ -298,10 +318,20 @@ def representative_fixture(wrong=False):
     } for index in range(3)]
 
 
+def sample_file(name):
+    """Locates a bundled sample regardless of the demo directory's name."""
+    root = Path(__file__).resolve().parents[4]
+    for directory in ("demo", "samples"):
+        candidate = root / directory / name
+        if candidate.exists():
+            return candidate
+    raise AssertionError(f"{name} is missing from tokenos/demo and tokenos/samples")
+
+
 def test_upload_manifest_and_real_measured_execution(page, browser_servers):
     choose_optimization(page)
     page.get_by_role("button", name=re.compile("^Upload workflow data")).click()
-    content = (Path(__file__).resolve().parents[4] / "samples" / "optimization-requests.json").read_bytes()
+    content = sample_file("optimization-requests.json").read_bytes()
     page.get_by_label(re.compile("^Representative test inputs")).set_input_files({
         "name": "representative.json", "mimeType": "application/json", "buffer": content,
     })
@@ -309,7 +339,6 @@ def test_upload_manifest_and_real_measured_execution(page, browser_servers):
     page.get_by_label("Current workflow description (required)", exact=True).fill("An existing FAQ assistant reprocesses stable policy sources.")
     quality_and_goal(page)
     run_id = build_plan(page, browser_servers["api"])
-    approve_to_protect(page)
     proof = execute_to_prove(page, browser_servers["api"], run_id)
     assert proof["verification"]["passed"]
     assert proof["cost"]["modelCalls"] == 0
@@ -333,7 +362,6 @@ def test_failed_output_never_offers_baseline(page, browser_servers):
     page.get_by_label("Current workflow description (required)", exact=True).fill("Validate real outputs against deliberately failing acceptance references.")
     quality_and_goal(page)
     run_id = build_plan(page, browser_servers["api"])
-    approve_to_protect(page)
     proof = execute_to_prove(page, browser_servers["api"], run_id)
     assert proof["verification"]["passed"] is False
     expect(page.get_by_role("button", name="Run all-AI comparison", exact=True)).to_have_count(0)
@@ -360,9 +388,9 @@ def test_analyze_mode_remains_telemetry_not_verified_execution(page, browser_ser
     expect(page.get_by_text(hashlib.sha256(telemetry).hexdigest(), exact=True)).to_be_visible()
     page.get_by_label("Current workflow description (required)", exact=True).fill("Inspect historical usage; no replay requested.")
     quality_and_goal(page)
-    # Analyze cannot invoke a model, so it has nothing to authorize and runs on.
-    run_id = build_plan(page, browser_servers["api"], spends=False)
-    proof = execute_to_prove(page, browser_servers["api"], run_id, authorize=None)
+    # Analyze cannot invoke a model, so its start button makes no spend claim.
+    run_id = build_plan(page, browser_servers["api"], start=START_ANALYZE)
+    proof = execute_to_prove(page, browser_servers["api"], run_id)
     assert proof["mode"] == "analyze"
     assert proof["verification"]["passed"] is False
     assert proof["modelUsage"] == []
@@ -380,11 +408,11 @@ def test_connected_sample_scopes_and_human_approval(page, browser_servers):
     page.get_by_label("Current workflow description (required)", exact=True).fill("Use only the registered approved support scope.")
     quality_and_goal(page)
     page.get_by_role("checkbox", name="Human approval remains required for selected outcomes", exact=True).check()
-    run_id = build_plan(page, browser_servers["api"])
-    approve_to_protect(page)
+    # The unanswered human-approval safeguard holds the run at Protect.
+    run_id = build_plan_to_protect(page, browser_servers["api"])
     expect(page.get_by_role("button", name="Authorize protected run", exact=True)).to_be_disabled()
     page.get_by_role("checkbox", name="I have reviewed the selected outcomes and grant the required human approval for this run.", exact=True).check()
-    proof = execute_to_prove(page, browser_servers["api"], run_id)
+    proof = execute_to_prove(page, browser_servers["api"], run_id, authorize="Authorize protected run")
     assert proof["verification"]["passed"] is True
     assert proof["dimensions"]["application"] == "support-archive"
     assert proof["dimensions"]["proofType"] == "sample"
@@ -392,11 +420,12 @@ def test_connected_sample_scopes_and_human_approval(page, browser_servers):
 
 
 def test_sse_failure_uses_authoritative_polling(page, browser_servers):
-    run_id = sample_plan(page, browser_servers["api"])
-    approve_to_protect(page)
     requests = []
     page.on("request", lambda request: requests.append(request.url))
-    page.route(f"**/api/runs/{run_id}/events*", lambda route: route.abort("connectionfailed"))
+    # The run now starts as soon as the plan is built, so the stream has to be
+    # broken before that click rather than between phases.
+    page.route("**/api/runs/*/events*", lambda route: route.abort("connectionfailed"))
+    run_id = sample_plan(page, browser_servers["api"])
     proof = execute_to_prove(page, browser_servers["api"], run_id)
     assert proof["verification"]["passed"] is True
     assert proof["cost"]["modelCalls"] == 0

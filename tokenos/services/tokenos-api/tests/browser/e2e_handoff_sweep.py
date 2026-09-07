@@ -415,10 +415,9 @@ def test_prompt_example_completes_all_seven_phases(page, browser_servers):
         lambda response: response.url == browser_servers["api"] + "/api/runs"
         and response.request.method == "POST"
     ) as created:
-        page.get_by_role("button", name="Build prompt optimization plan", exact=True).click()
+        page.get_by_role("button", name="Authorize and run the governed prompt", exact=True).click()
     run_id = created.value.json()["runId"]
 
-    page.get_by_role("button", name="Authorize protected prompt run", exact=True).click()
     expect(page.locator(".optimization-hero")).to_be_visible(timeout=30000)
 
     proof = page.request.get(f"{browser_servers['api']}/api/runs/{run_id}/proof").json()
@@ -439,11 +438,10 @@ def test_measured_workflow_example_completes_all_seven_phases(page, browser_serv
         and response.request.method == "POST"
     ) as created:
         page.get_by_role(
-            "button", name="Analyze workflow and build an optimization plan", exact=True
+            "button", name="Authorize and run the governed workflow", exact=True
         ).click()
     run_id = created.value.json()["runId"]
 
-    page.get_by_role("button", name="Authorize protected run", exact=True).click()
     expect(page.locator(".optimization-hero")).to_be_visible(timeout=30000)
 
     proof = page.request.get(f"{browser_servers['api']}/api/runs/{run_id}/proof").json()

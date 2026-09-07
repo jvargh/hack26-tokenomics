@@ -20,6 +20,7 @@ from e2e_optimization import (
     MODE_ANALYZE,
     MODE_MEASURE,
     MODE_PROMPT,
+    START_PROMPT,
     TITLE,
     choose_mode,
     screenshot,
@@ -75,8 +76,15 @@ def open_phase(page, name):
     button.click()
 
 
-def build_plan(page, api_url):
-    action = page.get_by_role("button", name="Build prompt optimization plan", exact=True)
+def build_plan(page, api_url, blocked=None):
+    """Starts a prompt run and waits for the journey to settle.
+
+    Describe carries the authorization, so a permitted run continues through
+    Protect, Run, Verify and Prove on its own. A run whose safeguards fail stops
+    at Protect. Pass `blocked` to require one outcome or the other; leave it
+    unset when either is legitimate for the prompt under test.
+    """
+    action = page.get_by_role("button", name=START_PROMPT, exact=True)
     expect(action).to_be_enabled()
     with page.expect_response(
         lambda response: response.url == api_url + "/api/runs"
@@ -87,9 +95,14 @@ def build_plan(page, api_url):
     assert response.status == 200, response.text()
     body = response.json()
     assert body["optimizationTarget"] == "single_prompt"
-    # Plan and Optimize compile locally and spend nothing, so the journey runs
-    # straight through to the authorization gate. Both stay open for inspection.
-    expect(page.get_by_role("heading", name="Execution safeguards", exact=True)).to_be_visible()
+    hero = page.locator(".optimization-hero").first
+    safeguards = page.get_by_role("heading", name="Execution safeguards", exact=True)
+    if blocked is True:
+        expect(safeguards).to_be_visible(timeout=30000)
+    elif blocked is False:
+        expect(hero).to_be_visible(timeout=30000)
+    else:
+        expect(hero.or_(safeguards).first).to_be_visible(timeout=30000)
     return body["runId"]
 
 
@@ -177,7 +190,7 @@ def test_mode_switch_shows_only_relevant_controls(page):
 def test_prompt_validation_gates_the_plan_button(page):
     open_prompt_mode(page)
     page.get_by_role("button", name=re.compile("^Paste a prompt")).click()
-    action = page.get_by_role("button", name="Build prompt optimization plan", exact=True)
+    action = page.get_by_role("button", name=START_PROMPT, exact=True)
     expect(action).to_be_disabled()
 
     page.get_by_label(re.compile("^User prompt")).fill(VERBOSE_PROMPT)
@@ -198,9 +211,9 @@ def test_same_answer_quality_requires_an_expected_result(page):
     expected = page.get_by_label(re.compile("^Expected result"))
     expect(expected).to_be_visible()
     page.get_by_label(re.compile("^Optimization goal")).select_option("cost_per_accepted_outcome")
-    expect(page.get_by_role("button", name="Build prompt optimization plan", exact=True)).to_be_disabled()
+    expect(page.get_by_role("button", name=START_PROMPT, exact=True)).to_be_disabled()
     expected.fill("30 days")
-    expect(page.get_by_role("button", name="Build prompt optimization plan", exact=True)).to_be_enabled()
+    expect(page.get_by_role("button", name=START_PROMPT, exact=True)).to_be_enabled()
 
 
 # ------------------------------------------------------------------------ plan
@@ -225,10 +238,8 @@ def test_plan_is_local_estimated_and_never_says_saving(page, browser_servers):
     plan_text = page.locator("main").inner_text()
     assert not re.search(r"\bsaving", plan_text, re.I), "Plan must not use savings language."
 
-    # Planning is local only: no model usage and no proof yet.
+    # Planning is local only: it produces estimates and invokes no model.
     state = page.request.get(f"{browser_servers['api']}/api/runs/{run_id}").json()
-    assert state["status"] == "optimized"
-    assert state["proof"] is None
     assert state["promptPlan"]["evidenceStatus"] == "estimated"
     assert not state.get("modelUsage")
     screenshot(page, "p02-plan-prompt")
@@ -252,20 +263,25 @@ def test_optimize_shows_governed_package_and_copy_does_not_spend(page, browser_s
     calls_before = page.request.get(f"{browser_servers['api']}/api/runs/{run_id}").json()
     page.get_by_role("button", name="Copy governed prompt", exact=True).click()
     calls_after = page.request.get(f"{browser_servers['api']}/api/runs/{run_id}").json()
-    assert calls_after["status"] == calls_before["status"] == "optimized"
-    assert calls_after["proof"] is None
+    # Copying is a clipboard action: it must not change the run or invoke a model.
+    assert calls_after["status"] == calls_before["status"]
     assert not calls_after.get("modelUsage")
+    assert calls_after["proof"]["cost"]["modelCalls"] == 0
 
 
 # ------------------------------------------------------------- protect and execution
 
 
-def test_no_model_call_before_explicit_authorization(page, browser_servers):
+def test_no_model_call_without_a_recorded_authorization(page, browser_servers):
+    """Authorization moved to the Describe action, but it is still required.
+
+    A run whose safeguards fail is never authorized, and the server refuses to
+    execute it however the request arrives.
+    """
     open_prompt_mode(page)
-    paste_grounded_prompt(page)
-    attach_context(page)
+    paste_grounded_prompt(page, prompt="Draft a persuasive apology explaining our delay policy.")
     fill_shared_requirements(page)
-    run_id = build_plan(page, browser_servers["api"])
+    run_id = build_plan(page, browser_servers["api"], blocked=True)
     expect(page.get_by_role("heading", name="Execution safeguards", exact=True)).to_be_visible()
     screenshot(page, "p04-protect-prompt")
 
@@ -273,7 +289,9 @@ def test_no_model_call_before_explicit_authorization(page, browser_servers):
     assert page.request.post(f"{api}/api/runs/{run_id}/execute", data="{}",
                              headers={"content-type": "application/json"}).status == 409
     state = page.request.get(f"{api}/api/runs/{run_id}").json()
-    assert state["authorized"] is False if "authorized" in state else state["status"] == "optimized"
+    assert state.get("authorized") is not True
+    assert state["status"] == "optimized"
+    assert state["proof"] is None
     assert not state.get("modelUsage")
 
 
@@ -287,7 +305,6 @@ def test_grounded_prompt_runs_locally_through_all_seven_phases(page, browser_ser
                                             "Required citations or grounded evidence"))
     page.get_by_label(re.compile("^Expected recurring volume")).fill("5000")
     run_id = build_plan(page, browser_servers["api"])
-    page.get_by_role("button", name="Authorize protected prompt run", exact=True).click()
 
     expect(page.locator(".optimization-hero")).to_be_visible(timeout=30000)
     screenshot(page, "p05-run-prompt")
@@ -323,7 +340,7 @@ def test_interpretation_prompt_blocks_safely_without_foundry(page, browser_serve
     open_prompt_mode(page)
     paste_grounded_prompt(page, prompt="Draft a persuasive apology explaining our delay policy.")
     fill_shared_requirements(page)
-    run_id = build_plan(page, browser_servers["api"])
+    run_id = build_plan(page, browser_servers["api"], blocked=True)
 
     expect(page.get_by_role("button", name="Authorize protected prompt run", exact=True)).to_be_disabled()
     expect(page.get_by_text(
@@ -340,7 +357,7 @@ def test_required_tests_gate_is_blocked_for_a_prompt(page, browser_servers):
     paste_grounded_prompt(page)
     attach_context(page)
     fill_shared_requirements(page, quality=("Required test suite passes",))
-    run_id = build_plan(page, browser_servers["api"])
+    run_id = build_plan(page, browser_servers["api"], blocked=True)
     expect(page.get_by_role("button", name="Authorize protected prompt run", exact=True)).to_be_disabled()
     state = page.request.get(f"{browser_servers['api']}/api/runs/{run_id}").json()
     blocked = [check for check in state["protectionChecks"] if check["passed"] is False]
@@ -390,7 +407,7 @@ def assert_example_defaults(page, example):
     expect(page.get_by_label("Volume period", exact=True)).to_have_value(example["recurringVolume"]["period"])
     for filename in example["contextFilenames"]:
         expect(page.get_by_text(filename, exact=True)).to_be_visible()
-    expect(page.get_by_role("button", name="Build prompt optimization plan", exact=True)).to_be_enabled()
+    expect(page.get_by_role("button", name=START_PROMPT, exact=True)).to_be_enabled()
 
 
 def test_prompt_example_loads_a_reproducible_prompt(page, browser_servers):
@@ -448,9 +465,10 @@ def test_every_prompt_example_supplies_usable_prompt_content(page, browser_serve
     for key, value in example["requirements"].items():
         assert submitted["requirements"][key] == value
     state = page.request.get(f"{browser_servers['api']}/api/runs/{run_id}").json()
-    assert state["status"] == "optimized"
-    assert state["proof"] is None
-    assert not any(url.endswith(("/authorize", "/execute", "/baseline")) for url in calls)
+    # The example content really is what was planned, unedited.
+    assert state["promptPlan"]["candidate"]["governedPrompt"].strip()
+    assert not any(url.endswith("/baseline") for url in calls), \
+        "A baseline comparison must never start without being asked for."
 
 
 def test_switching_prompt_examples_replaces_all_edited_defaults(page, browser_servers):
@@ -471,7 +489,7 @@ def test_switching_prompt_examples_replaces_all_edited_defaults(page, browser_se
         page.get_by_label("Expected recurring volume (optional)", exact=True).fill("999")
         page.get_by_role("checkbox", name="Required test suite passes", exact=True).check()
         page.get_by_role("checkbox", name="Human approval remains required for selected outcomes", exact=True).check()
-        expect(page.get_by_role("button", name="Build prompt optimization plan", exact=True)).to_be_disabled()
+        expect(page.get_by_role("button", name=START_PROMPT, exact=True)).to_be_disabled()
 
 
 def test_prompt_example_runs_end_to_end_with_its_supplied_prompt(page, browser_servers):
@@ -485,8 +503,7 @@ def test_prompt_example_runs_end_to_end_with_its_supplied_prompt(page, browser_s
     expect(page.get_by_label(re.compile("^User prompt"))).to_have_value(lookup["prompt"])
     assert_example_defaults(page, lookup)
 
-    run_id = build_plan(page, browser_servers["api"])
-    page.get_by_role("button", name="Authorize protected prompt run", exact=True).click()
+    run_id = build_plan(page, browser_servers["api"], blocked=False)
     expect(page.locator(".optimization-hero")).to_be_visible(timeout=30000)
 
     proof = wait_for_proof(page, browser_servers["api"], run_id)
