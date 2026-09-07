@@ -1,8 +1,0 @@
-These are the two files a user would upload for the Review documents workflow:
-- Documents to review: Supplier charge review
-- Policy, contract, or rules: Supplier freight policy
-
-They are designed to produce a credible TokenOS result:
-- Approve standard freight, fuel, address correction, customs support, and the approved expedited delivery
-- Request evidence for the weekend surcharge and peak-season surcharge
-- Reject the duplicate $1,240 charge
