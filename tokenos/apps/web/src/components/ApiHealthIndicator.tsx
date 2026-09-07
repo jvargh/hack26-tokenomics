@@ -2,9 +2,7 @@ import { API_BASE } from "../api/client";
 import { useRun } from "../state/runContext";
 
 /** Replaces the old run-source selector with real local API status. */
-export function ApiHealthIndicator({ onConfigure, serverManaged = false }: {
-  onConfigure?: () => void; serverManaged?: boolean;
-}) {
+export function ApiHealthIndicator({ onConfigure }: { onConfigure?: () => void }) {
   const { health, refreshHealth } = useRun();
 
   const label =
@@ -28,12 +26,10 @@ export function ApiHealthIndicator({ onConfigure, serverManaged = false }: {
       {health.state === "ready" ? (
         <p className="muted api-health-detail">
           {API_BASE} · v{health.health.version} ·{" "}
-          {serverManaged ? (
+          {/* Same line in every workflow. Deployment bindings are a server
+              concern, and the UI refers to models by alias, not by raw name. */}
+          {health.health.foundryAvailable ? (
             <span>Model aliases and pricing are configured on the server.</span>
-          ) : health.health.foundryAvailable ? (
-            <span>
-              {health.health.efficientDeployment} / {health.health.advancedDeployment}
-            </span>
           ) : (
             <span
               onClick={onConfigure}

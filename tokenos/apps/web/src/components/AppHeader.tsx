@@ -1,20 +1,18 @@
 import { useRun } from "../state/runContext";
 import { ApiHealthIndicator } from "./ApiHealthIndicator";
+import { ThemeToggle } from "./ThemeToggle";
 
 export function AppHeader({
   onOpenHistory,
   onOpenFoundryConfig,
-  serverManaged = false,
   onNewRun
 }: {
   onOpenHistory: () => void;
   onOpenFoundryConfig: () => void;
-  serverManaged?: boolean;
   onNewRun?: () => void;
 }) {
   const { state, reset } = useRun();
-  const { active, history } = state;
-  const started = active.runId !== null || active.plan !== null;
+  const { history } = state;
 
   return (
     <header className="header">
@@ -29,24 +27,24 @@ export function AppHeader({
       </div>
 
       <div className="source">
-        <ApiHealthIndicator onConfigure={serverManaged ? undefined : onOpenFoundryConfig} serverManaged={serverManaged} />
+        <ApiHealthIndicator onConfigure={onOpenFoundryConfig} />
+        {/* App chrome, so it stays identical whichever workflow is selected. */}
         <div className="header-actions">
-          {!serverManaged ? <button
+          <ThemeToggle />
+          <button
             type="button"
             className="btn btn-small btn-secondary"
             onClick={onOpenFoundryConfig}
             title="Configure Azure AI Foundry endpoint, deployments, and price table"
           >
             ⚙ Foundry Config
-          </button> : null}
+          </button>
           <button type="button" className="btn btn-small" onClick={onOpenHistory}>
             History{history.length ? ` (${history.length})` : ""}
           </button>
-          {started || serverManaged ? (
-            <button type="button" className="btn btn-small" onClick={onNewRun ?? reset}>
-              New run
-            </button>
-          ) : null}
+          <button type="button" className="btn btn-small" onClick={onNewRun ?? reset}>
+            New run
+          </button>
         </div>
       </div>
     </header>

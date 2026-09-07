@@ -437,6 +437,11 @@ legend,
 .template-name {
   font-weight: 650;
   font-size: 14px;
+  line-height: 1.5;
+  /* The longest workflow title wraps to two lines while the others fit on one.
+     Reserving both lines keeps every card's description starting on the same
+     baseline, so the row reads as one set rather than three plus an odd one. */
+  min-height: 3em;
 }
 
 .template-support {
@@ -1298,8 +1303,695 @@ th.numeric {
   line-height: 1.35;
 }
 
+/* Sits between the run name and its status badge in the history list. */
+.history-time {
+  margin-left: auto;
+  margin-right: 8px;
+  font-size: 11.5px;
+  color: var(--tos-muted);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+ * Technical evidence and run proof.
+ *
+ * Route colour is the load-bearing signal and matches the rest of the product:
+ *   gray  = regular software      green = approved retrieval
+ *   blue  = efficient model       amber = advanced model
+ * ------------------------------------------------------------------------ */
+
+.evidence-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.evidence-tag {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 6px 13px;
+  border: 1px solid var(--tos-border);
+  border-radius: 999px;
+  background: var(--tos-surface-2);
+  font-size: 12px;
+}
+
+.evidence-tag i {
+  font-style: normal;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tos-muted);
+}
+
+.evidence-tag b {
+  font-weight: 640;
+}
+
+.evidence-tag.is-mono b {
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
+  font-size: 11.5px;
+}
+
+.evidence-tag.is-sample {
+  background: rgba(94, 219, 165, 0.12);
+  border-color: rgba(94, 219, 165, 0.34);
+  color: var(--tos-good);
+}
+
+.evidence-tag.is-sample i {
+  color: var(--tos-good);
+  opacity: 0.8;
+}
+
+.route-ladder {
+  padding: 15px 17px;
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-surface);
+  background: var(--tos-surface-2);
+}
+
+.route-ladder-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 11px;
+}
+
+.route-ladder-title {
+  font-size: 13px;
+  font-weight: 640;
+}
+
+.route-ladder-sub {
+  font-size: 11.5px;
+  color: var(--tos-muted);
+}
+
+.route-ladder-bar {
+  display: flex;
+  height: 11px;
+  border: 1px solid var(--tos-border);
+  border-radius: 999px;
+  background: var(--tos-bg);
+  overflow: hidden;
+}
+
+.route-ladder-seg.is-local {
+  background: rgba(174, 185, 202, 0.45);
+}
+.route-ladder-seg.is-retrieval {
+  background: rgba(94, 219, 165, 0.5);
+}
+.route-ladder-seg.is-efficient {
+  background: var(--tos-brand);
+}
+.route-ladder-seg.is-advanced {
+  background: var(--tos-warn);
+}
+
+.route-ladder-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 11px;
+}
+
+.route-ladder-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--tos-muted);
+}
+
+.route-ladder-legend b {
+  color: var(--tos-text);
+  font-weight: 640;
+}
+
+.route-ladder-dot {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-radius: 3px;
+}
+
+.route-ladder-dot.is-local {
+  background: rgba(174, 185, 202, 0.45);
+}
+.route-ladder-dot.is-retrieval {
+  background: rgba(94, 219, 165, 0.5);
+}
+.route-ladder-dot.is-efficient {
+  background: var(--tos-brand);
+}
+.route-ladder-dot.is-advanced {
+  background: var(--tos-warn);
+}
+
+.evidence-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: -4px;
+}
+
+.evidence-section-head h4 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.evidence-section-head span {
+  font-size: 11.5px;
+  color: var(--tos-muted);
+}
+
+.evidence-table tbody tr.is-paid {
+  background: rgba(128, 148, 255, 0.06);
+}
+
+.evidence-table tbody tr.is-paid.is-advanced {
+  background: rgba(255, 196, 107, 0.07);
+}
+
+.evidence-op {
+  font-weight: 560;
+}
+
+.route-pill {
+  display: inline-block;
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.route-pill.is-local {
+  background: rgba(174, 185, 202, 0.12);
+  border-color: var(--tos-border);
+  color: var(--tos-muted);
+}
+
+.route-pill.is-retrieval {
+  background: rgba(94, 219, 165, 0.12);
+  border-color: rgba(94, 219, 165, 0.3);
+  color: var(--tos-good);
+}
+
+.route-pill.is-efficient {
+  background: rgba(128, 148, 255, 0.16);
+  border-color: rgba(128, 148, 255, 0.4);
+  color: var(--tos-brand);
+}
+
+.route-pill.is-advanced {
+  background: rgba(255, 196, 107, 0.14);
+  border-color: rgba(255, 196, 107, 0.38);
+  color: var(--tos-warn);
+}
+
+/* Bar plus figure: the bar gives scale, the figure stays the source of truth. */
+.evidence-meter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.evidence-meter-bar {
+  height: 5px;
+  min-width: 2px;
+  border-radius: 3px;
+  background: rgba(174, 185, 202, 0.3);
+}
+
+.evidence-meter-bar.is-efficient {
+  background: var(--tos-brand);
+}
+.evidence-meter-bar.is-advanced {
+  background: var(--tos-warn);
+}
+.evidence-meter-bar.is-chars {
+  background: rgba(128, 148, 255, 0.35);
+}
+
+.evidence-cost {
+  font-weight: 650;
+  color: var(--tos-brand);
+}
+
+.evidence-cost.is-advanced {
+  color: var(--tos-warn);
+}
+
+.evidence-table tfoot td {
+  padding-top: 11px;
+  font-weight: 650;
+  border-top: 1px solid var(--tos-border);
+}
+
+.evidence-file {
+  display: block;
+  font-weight: 560;
+}
+
+.evidence-role {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--tos-muted);
+}
+
+.evidence-hash {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dotted var(--tos-border);
+  background: none;
+  color: var(--tos-muted);
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.evidence-hash:hover {
+  color: var(--tos-text);
+}
+
+.evidence-more {
+  padding-top: 11px;
+  font-size: 11.5px;
+}
+
+.evidence-disclosure {
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-field);
+  background: var(--tos-surface-2);
+}
+
+.evidence-disclosure + .evidence-disclosure {
+  margin-top: -4px;
+}
+
+.evidence-disclosure summary {
+  padding: 11px 15px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.evidence-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.evidence-disclosure summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 15px;
+  color: var(--tos-muted);
+}
+
+.evidence-disclosure[open] summary::before {
+  content: "▾";
+}
+
+.evidence-disclosure-body {
+  padding: 0 15px 14px 30px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--tos-muted);
+}
+
+.evidence-disclosure-body ul {
+  margin: 6px 0;
+  padding-left: 17px;
+}
+
+.evidence-disclosure-body li {
+  margin: 3px 0;
+}
+
+@media (max-width: 720px) {
+  .route-ladder-head,
+  .evidence-section-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}
+
 .text-good {
   color: var(--tos-good);
+}
+
+/* Single-bulb light/dark switch. Filled when the lights are on. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--tos-border);
+  border-radius: 999px;
+  background: var(--tos-surface-2);
+  color: var(--tos-muted);
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.theme-toggle:hover {
+  color: var(--tos-text);
+  border-color: var(--tos-muted);
+}
+
+.theme-toggle[aria-pressed="true"] {
+  color: var(--tos-warn);
+  border-color: var(--tos-warn);
+  background: rgba(255, 196, 107, 0.12);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--tos-brand);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Before/after comparison on the Prove screens.
+ *
+ * Colour carries the claim strength and must stay consistent:
+ *   amber  = estimate (nothing extra was spent)
+ *   green  = proven   (both routes actually ran and were measured)
+ *   red    = no claim (the outcome did not pass, so no benefit is shown)
+ * ------------------------------------------------------------------------ */
+
+/* The headline win: how much work never needed a model. */
+.work-avoided {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 20px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(94, 219, 165, 0.34);
+  border-radius: var(--tos-radius-surface);
+  background: linear-gradient(180deg, rgba(94, 219, 165, 0.13), rgba(94, 219, 165, 0.05));
+}
+
+.work-avoided-count {
+  flex-shrink: 0;
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--tos-good);
+}
+
+.work-avoided-of {
+  font-size: 21px;
+  font-weight: 500;
+  color: var(--tos-muted);
+}
+
+.work-avoided-text {
+  font-size: 16px;
+  font-weight: 640;
+  line-height: 1.35;
+}
+
+.work-avoided-text small {
+  display: block;
+  margin-top: 5px;
+  font-size: 12.5px;
+  font-weight: 450;
+  color: var(--tos-muted);
+  line-height: 1.5;
+}
+
+.comparison-card {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Both fixed heights keep the large values on one baseline when titles or
+   comparison lines wrap to different numbers of lines. */
+.comparison-card-title {
+  min-height: 33px;
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  font-weight: 640;
+  line-height: 1.3;
+  color: var(--tos-text);
+}
+
+.comparison-before {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 44px;
+  margin-bottom: 10px;
+  padding: 6px 9px;
+  border-left: 2px solid var(--tos-border);
+  border-radius: 0 6px 6px 0;
+  background: var(--tos-surface);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--tos-muted);
+}
+
+.comparison-before strong {
+  color: var(--tos-text);
+  font-weight: 650;
+}
+
+.comparison-before.is-blank {
+  visibility: hidden;
+}
+
+.comparison-value {
+  font-size: 26px;
+  font-weight: 690;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.comparison-value-unit {
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--tos-muted);
+}
+
+.comparison-chip {
+  align-self: flex-start;
+  margin-top: 9px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  border: 1px solid transparent;
+}
+
+.comparison-chip.is-estimate {
+  background: rgba(255, 196, 107, 0.11);
+  border-color: rgba(255, 196, 107, 0.32);
+  color: var(--tos-warn);
+}
+
+.comparison-chip.is-proven {
+  background: rgba(94, 219, 165, 0.13);
+  border-color: rgba(94, 219, 165, 0.34);
+  color: var(--tos-good);
+}
+
+.comparison-chip.is-none {
+  background: rgba(174, 185, 202, 0.1);
+  border-color: var(--tos-border);
+  color: var(--tos-muted);
+}
+
+.comparison-note {
+  margin-top: 10px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--tos-muted);
+}
+
+.claim-strength {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 14px;
+  padding: 14px 18px;
+  border: 1px solid var(--tos-border);
+  border-left: 3px solid var(--tos-warn);
+  border-radius: var(--tos-radius-surface);
+  background: var(--tos-surface-2);
+}
+
+.claim-strength.is-proven {
+  border-left-color: var(--tos-good);
+}
+
+.claim-strength.is-none {
+  border-left-color: var(--tos-risk);
+}
+
+.claim-strength-badge {
+  flex-shrink: 0;
+  padding: 5px 11px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: rgba(255, 196, 107, 0.13);
+  border-color: rgba(255, 196, 107, 0.34);
+  color: var(--tos-warn);
+}
+
+.claim-strength-badge.is-proven {
+  background: rgba(94, 219, 165, 0.13);
+  border-color: rgba(94, 219, 165, 0.34);
+  color: var(--tos-good);
+}
+
+.claim-strength-badge.is-none {
+  background: rgba(255, 141, 135, 0.12);
+  border-color: rgba(255, 141, 135, 0.34);
+  color: var(--tos-risk);
+}
+
+.claim-strength-main {
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.claim-strength-headline {
+  display: block;
+  margin-bottom: 2px;
+  font-weight: 670;
+}
+
+.claim-strength-detail {
+  color: var(--tos-muted);
+}
+
+.claim-strength-action {
+  flex-shrink: 0;
+}
+
+.route-comparison {
+  margin-top: 14px;
+  padding: 6px 18px;
+  border: 1px solid var(--tos-border);
+  border-radius: var(--tos-radius-surface);
+  background: var(--tos-surface-2);
+}
+
+.route-comparison-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.route-comparison-row + .route-comparison-row {
+  border-top: 1px solid var(--tos-border);
+}
+
+.route-comparison-label {
+  flex-shrink: 0;
+  width: 136px;
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--tos-muted);
+}
+
+.route-comparison-step {
+  display: inline-block;
+  padding: 7px 12px;
+  border: 1px solid var(--tos-border);
+  border-radius: 8px;
+  background: var(--tos-surface);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.route-comparison-step.is-ghosted {
+  border-style: dashed;
+  font-weight: 500;
+  opacity: 0.5;
+}
+
+.route-comparison-step.is-local {
+  border-color: rgba(94, 219, 165, 0.4);
+  color: var(--tos-good);
+}
+
+.route-comparison-step.is-model {
+  border-color: rgba(128, 148, 255, 0.45);
+  color: var(--tos-brand);
+}
+
+.route-comparison-arrow {
+  margin: 0 8px;
+  font-size: 13px;
+  color: var(--tos-muted);
+}
+
+.route-comparison-suffix {
+  font-size: 11.5px;
+  color: var(--tos-muted);
+}
+
+/* The hypothetical all-AI row sits above the real route flow, sharing the same
+   step styling so the contrast reads as one picture rather than two diagrams. */
+.route-flow-before {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--tos-border);
+}
+
+.route-flow-before-label {
+  flex-shrink: 0;
+  width: 136px;
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--tos-muted);
+}
+
+@media (max-width: 720px) {
+  .route-flow-before-label {
+    width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .work-avoided,
+  .claim-strength {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .route-comparison-label {
+    width: 100%;
+  }
 }
 
 .volume-projection-box {

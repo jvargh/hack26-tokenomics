@@ -7,6 +7,19 @@ import { workflowTitle } from "./WorkflowChoices";
 import { normalizeRecord } from "../optimization/client";
 import { dollars, SampleBadge } from "../optimization/OptimizationViews";
 
+/** "2 min ago" reads faster than a clock time when scanning for the latest run. */
+function relativeTime(value: string): string {
+  const at = new Date(value);
+  if (!value || Number.isNaN(at.getTime())) return "";
+  const seconds = Math.max(0, Math.round((Date.now() - at.getTime()) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  return `${Math.round(hours / 24)} d ago`;
+}
+
 export function HistoryDrawer({ onClose, onOpenRun }: {
   onClose: () => void; onOpenRun: (runId: string, workflowId: string) => void;
 }) {
@@ -68,6 +81,13 @@ export function HistoryDrawer({ onClose, onOpenRun }: {
                   aria-label={`Open ${workflowTitle(entry.workflow_id)} ${entry.proof ? "proof" : "run"} ${entry.run_id}`}>
                 <div className="check-head">
                   <span className="check-name">{workflowTitle(entry.workflow_id)}</span>
+                  {/* The list is newest first; the time makes that obvious. */}
+                  {relativeTime(entry.created_at) ? (
+                    <time className="history-time" dateTime={entry.created_at}
+                      title={new Date(entry.created_at).toLocaleString()}>
+                      {relativeTime(entry.created_at)}
+                    </time>
+                  ) : null}
                   <StatusBadge tone={entry.status === "completed" ? "good" : "warn"}>
                     {entry.status === "completed" ? "Completed" : entry.status.replace(/_/g, " ")}
                   </StatusBadge>

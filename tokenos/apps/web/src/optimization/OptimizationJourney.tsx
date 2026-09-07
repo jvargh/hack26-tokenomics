@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ConnectedApplication } from "../api/types";
 import { PhaseIntro } from "../components/shared/PhaseIntro";
-import { WorkflowChoices, workflowTitle } from "../components/WorkflowChoices";
+import { DESCRIBE_HEADING, DESCRIBE_SUPPORTING, WorkflowChoices, workflowTitle } from "../components/WorkflowChoices";
 import { useRun } from "../state/runContext";
 import { PHASE_LABEL, PHASE_ORDER, type PhaseId } from "../state/runStore";
 import { EMPTY_DRAFT, OptimizationDescribe, type OptimizationDraft, type OptimizationSample, type PromptExample } from "./OptimizationDescribe";
@@ -132,6 +132,12 @@ export function OptimizationJourney({ initialRunId, onSelectWorkflow }: {
           closeStream();
           setStreamStatus("complete");
           if (baseline) setComparing(false);
+          else {
+            // The run is finished, so land on the proof the way the other
+            // workflows do. Verify stays open for inspection.
+            setPhase("prove");
+            setReached((value) => Math.max(value, PHASE_ORDER.indexOf("prove")));
+          }
           setAnnouncement(baseline ? "All-AI comparison result recorded." : "Execution finished. Review verification before cost proof.");
         }
       } catch (reason) {
@@ -212,7 +218,13 @@ export function OptimizationJourney({ initialRunId, onSelectWorkflow }: {
     const described = await optimizationApi.create(draft);
     remember(described);
     const planned = await optimizationApi.analyze(described.runId);
-    remember(planned); navigate("plan");
+    remember(planned);
+    // Plan and Optimize are local and deterministic — compiling them spends
+    // nothing — so the journey runs straight through to the one gate that
+    // actually commits model cost. Both phases stay open for inspection.
+    const optimized = await optimizationApi.optimize(planned.runId);
+    remember(optimized);
+    navigate("protect");
   });
   const approvePlan = () => record && void action(async () => {
     const optimized = await optimizationApi.optimize(record.runId);
@@ -220,7 +232,12 @@ export function OptimizationJourney({ initialRunId, onSelectWorkflow }: {
   });
   const authorize = () => record && void action(async () => {
     const authorized = await optimizationApi.authorize(record.runId, humanApproved);
-    remember(authorized); navigate("run");
+    remember(authorized);
+    navigate("run");
+    // Authorization is the deliberate decision. Once it is given, executing and
+    // showing the result needs no further prompting.
+    const started = await optimizationApi.execute(authorized.runId);
+    remember(started); attachStream(started.runId);
   });
   const execute = () => record && void action(async () => {
     const started = await optimizationApi.execute(record.runId);
@@ -292,6 +309,8 @@ export function OptimizationJourney({ initialRunId, onSelectWorkflow }: {
       </div>}
       {busy && !record && <p role="status">Loading the authoritative workflow record…</p>}
       {phase === "describe" && <>
+        {/* The other three workflows show this heading, so the fourth must too. */}
+        <PhaseIntro heading={DESCRIBE_HEADING} supporting={DESCRIBE_SUPPORTING} focusKey="optimization-describe" />
         <WorkflowChoices workflows={workflows} selected="workflow_optimization" onSelect={(id) => {
           if (id !== "workflow_optimization") onSelectWorkflow(id);
         }} />

@@ -74,7 +74,8 @@ def test_every_workflow_example_fills_and_submits_without_edits(page, browser_se
     for key, value in sample["requirements"].items():
         assert submitted["requirements"][key] == value
     state = page.request.get(f"{browser_servers['api']}/api/runs/{run_id}").json()
-    assert state["status"] == "planned" and state["proof"] is None
+    # Plan and Optimize compile automatically; nothing has executed yet.
+    assert state["status"] == "optimized" and state["proof"] is None
     assert state["currentRoute"]["modelSpendUsd"] is None
     assert state["badges"] == ["Measured sample run"]
 

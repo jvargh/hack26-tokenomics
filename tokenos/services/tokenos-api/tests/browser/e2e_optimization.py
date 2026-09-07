@@ -154,35 +154,51 @@ def build_plan(page, api_url):
         page.get_by_role("button", name="Analyze workflow and build an optimization plan", exact=True).click()
     response = created.value
     assert response.status == 200, response.text()
-    expect(page.get_by_role("heading", name="Current workflow map", exact=True)).to_be_visible()
+    # Plan and Optimize compile locally and spend nothing, so the journey runs
+    # straight through to the authorization gate. Both stay open for inspection.
+    expect(page.get_by_role("heading", name="Execution safeguards", exact=True)).to_be_visible()
     return response.json()["runId"]
 
 
+def open_optimization_phase(page, name):
+    """Navigates the optimization stepper the way a user inspects a phase."""
+    stepper = page.get_by_role("navigation", name="Optimization workflow progress")
+    button = stepper.get_by_role("button", name=re.compile(f"^{name}"))
+    expect(button).to_be_enabled(timeout=30000)
+    button.click()
+
+
 def approve_to_protect(page, capture=False):
+    """Visits the auto-compiled Plan and Optimize phases, then returns to Protect."""
+    open_optimization_phase(page, "Plan")
+    expect(page.get_by_role("heading", name="Current workflow map", exact=True)).to_be_visible()
     if capture:
         screenshot(page, "02-plan")
-    page.get_by_role("button", name="Approve optimization plan", exact=True).click()
+    open_optimization_phase(page, "Optimize")
     expect(page.get_by_role("heading", name="Optimization levers", exact=True)).to_be_visible()
     if capture:
         screenshot(page, "03-optimize")
-    page.get_by_role("button", name="Review execution safeguards", exact=True).click()
+    open_optimization_phase(page, "Protect")
     expect(page.get_by_role("heading", name="Execution safeguards", exact=True)).to_be_visible()
     if capture:
         screenshot(page, "04-protect")
 
 
-def execute_to_prove(page, api_url, run_id, capture=False):
-    page.get_by_role("button", name="Authorize protected run", exact=True).click()
-    page.get_by_role("button", name="Run authorized workflow", exact=True).click()
-    expect(page.get_by_role("button", name="Inspect verified outcome", exact=True)).to_be_enabled(timeout=20000)
+def execute_to_prove(page, api_url, run_id, capture=False, authorize="Authorize protected run"):
+    """Authorizing is the single deliberate decision; execution follows from it."""
+    page.get_by_role("button", name=authorize, exact=True).click()
+    # The journey lands on Prove by itself once the run finishes.
+    expect(page.get_by_role("button", name="Download the full proof", exact=True).or_(
+        page.locator(".optimization-hero")
+    ).first).to_be_visible(timeout=30000)
+    proof = wait_for_proof(page, api_url, run_id)
     if capture:
         screenshot(page, "05-run")
-    page.get_by_role("button", name="Inspect verified outcome", exact=True).click()
-    expect(page.get_by_role("heading", name="Verified outcome", exact=True)).to_be_visible()
-    if capture:
+        open_optimization_phase(page, "Verify")
+        expect(page.get_by_role("heading", name="Verified outcome", exact=True)).to_be_visible()
         screenshot(page, "06-verify")
-    page.get_by_role("button", name="Review measured cost proof", exact=True).click()
-    return wait_for_proof(page, api_url, run_id)
+        open_optimization_phase(page, "Prove")
+    return proof
 
 
 def sample_plan(page, api_url, title="Repeated customer-assistance prompts with reusable context"):
@@ -222,8 +238,10 @@ def test_seven_phases_sse_proof_baseline_and_history(page, browser_servers):
     for summary in ("Outcome evidence: why quality passed", "Technical evidence and run proof"):
         details = page.locator("details").filter(has=page.locator("summary", has_text=summary))
         expect(details).not_to_have_attribute("open", "")
-    assert page.locator(".optimization-metric").count() == 4
-    assert page.locator(".optimization-metric").filter(has_text="Measured sample run").count() == 4
+    # The Prove hero now uses the same before/after cards as the other workflows.
+    assert page.locator(".prove-cards .comparison-card").count() == 4
+    expect(page.locator(".work-avoided")).to_be_visible()
+    expect(page.get_by_text("Measured sample run", exact=True).first).to_be_visible()
     screenshot(page, "07-prove")
     comparison = page.get_by_role("button", name="Run all-AI comparison", exact=True)
     expect(comparison).to_be_disabled()

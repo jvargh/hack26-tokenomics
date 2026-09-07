@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
 import { PhaseIntro, SectionHead } from "../components/shared/PhaseIntro";
+import { ComparisonCard, WorkAvoidedBanner } from "../components/shared/Comparison";
 import type { OptimizationComparison, OptimizationGate, OptimizationRecord, OptimizationUsage, PromptPlan } from "./types";
 
 export function numberValue(value?: number): string {
@@ -427,6 +428,14 @@ export function ProveView({ record, acknowledged, setAcknowledged, comparing, on
     : record.qualityPassed === true ? "Verified outcome. Minimal AI use. Measured cost proof."
     : "Measured execution. Outcome not verified.";
   const baselineStarted = Boolean(comparison && !["not_requested", "not_run"].includes(comparison.status));
+  const beforeTokens = promptProof?.estimatedBefore?.inputTokens !== undefined
+    ? numberValue(promptProof.estimatedBefore.inputTokens)
+    : promptPlan?.current.estimatedInputTokens !== undefined
+      ? numberValue(promptPlan.current.estimatedInputTokens) : "Unavailable";
+  const afterTokens = promptProof?.estimatedAfter?.inputTokens !== undefined
+    ? numberValue(promptProof.estimatedAfter.inputTokens)
+    : promptPlan?.candidate.estimatedInputTokens !== undefined
+      ? numberValue(promptPlan.candidate.estimatedInputTokens) : "Unavailable";
   const comparisonLabel = !baselineStarted ? "Comparison not run"
     : ["running", "queued"].includes(comparison?.status ?? "") || comparing ? "All-AI comparison running"
     : comparison?.label === "No valid comparison" || ["unavailable", "baseline_failed", "invalid_comparison", "failed"].includes(comparison?.status ?? "") ? "No valid comparison"
@@ -443,24 +452,89 @@ export function ProveView({ record, acknowledged, setAcknowledged, comparing, on
       <h2 tabIndex={-1}>{heading}</h2>
       <p className="muted">{record.outcome || "Actual outcomes and model usage, without inferred improvements."}</p>
       {record.mode === "analyze" && <p className="muted">Telemetry analysis is not an executed optimized route. Candidate improvements are recommendations only.</p>}
-      {isPrompt ? <div className="optimization-metrics">
-        <Metric title="Prompt size"
-          value={`${promptProof?.estimatedBefore?.inputTokens !== undefined ? numberValue(promptProof.estimatedBefore.inputTokens) : promptPlan?.current.estimatedInputTokens !== undefined ? numberValue(promptPlan.current.estimatedInputTokens) : "Unavailable"} → ${promptProof?.estimatedAfter?.inputTokens !== undefined ? numberValue(promptProof.estimatedAfter.inputTokens) : promptPlan?.candidate.estimatedInputTokens !== undefined ? numberValue(promptPlan.candidate.estimatedInputTokens) : "Unavailable"}`}
-          note="Estimated before execution; after-run actual usage shown separately" sample={record.sample} />
-        <Metric title="Model spend" value={dollars(promptProof?.measuredCost?.costUsd ?? promptProof?.measuredCost?.modelSpendUsd ?? record.modelSpendUsd)}
-          note="Measured provider usage and pinned price table" sample={record.sample} />
-        <Metric title="Context decision" value={promptContextState || "Recorded"} note="Kept, minimized, reused, or blocked sections; zero model tokens only for local work" sample={record.sample} />
-        <Metric title="Outcome verification" value={record.qualityPassed === true ? "Passed" : record.qualityPassed === false ? "Failed" : "Not run"}
-          note="Quality checks and evidence result" sample={record.sample} />
-      </div> : <div className="optimization-metrics">
-        <Metric title={record.mode === "analyze" ? "Measured current cost" : "Model spend"}
+      {record.mode === "measure" && record.qualityPassed === true && completed.length > 0 ? (
+        <WorkAvoidedBanner
+          localOperations={local.length}
+          totalOperations={completed.length}
+          detail={record.modelCalls === 0
+            ? "Ordinary software and validated reuse settled every step. No model was needed."
+            : `Only ${modelOperations.length} ${modelOperations.length === 1 ? "step" : "steps"} genuinely needed a model.`}
+        />
+      ) : null}
+      {isPrompt ? <div className="cards prove-cards">
+        <ComparisonCard
+          title="What this run cost"
+          comparison={eligible && comparison ? <span>The all-AI version: <strong>{dollars(comparison.baselineCostUsd)}</strong></span> : undefined}
+          value={dollars(promptProof?.measuredCost?.costUsd ?? promptProof?.measuredCost?.modelSpendUsd ?? record.modelSpendUsd)}
+          chip={eligible ? "Verified saving" : undefined}
+          tier={eligible ? "proven" : "none"}
+          note="Measured provider usage priced against the pinned price table."
+        />
+        <ComparisonCard
+          title="How big the prompt was"
+          comparison={<span>Before TokenOS: <strong>{beforeTokens}</strong> tokens</span>}
+          value={afterTokens}
+          unit="tokens"
+          chip="Estimate"
+          tier="estimate"
+          note="Estimated from prompt composition. Actual usage is recorded separately."
+        />
+        <ComparisonCard
+          title="What happened to the context"
+          value={promptContextState || "Recorded"}
+          chip="No AI tokens used"
+          tier="none"
+          note="No AI tokens does not mean free — normal computing and review time still apply."
+        />
+        <ComparisonCard
+          title="Is the answer still correct?"
+          value={record.qualityPassed === true ? "Yes" : record.qualityPassed === false ? "No" : "Not run"}
+          valueTone={record.qualityPassed === true ? "good" : undefined}
+          chip={record.qualityPassed === true ? "Quality checks passed" : undefined}
+          tier="proven"
+          note="Quality checks and evidence result."
+        />
+      </div> : <div className="cards prove-cards">
+        <ComparisonCard
+          title={record.mode === "analyze" ? "What the current route costs" : "What this run cost"}
+          comparison={eligible && comparison ? <span>The all-AI version: <strong>{dollars(comparison.baselineCostUsd)}</strong></span> : undefined}
           value={dollars(record.mode === "analyze" ? record.current.costUsd : record.modelSpendUsd)}
-          note={record.mode === "analyze" ? "Imported measured usage, where available" : "Measured provider usage and pinned price table"} sample={record.sample} />
-        <Metric title="Model calls" value={record.mode === "analyze" ? numberValue(record.current.calls) : numberValue(record.modelCalls)}
-          note={record.mode === "analyze" ? "Observed current route, not a governed run" : `${modelOperations.length} model operations · ${efficient.length} efficient / ${advanced.length} advanced calls`} sample={record.sample} />
-        <Metric title="Local work" value={local.length} note="Operations completed locally · Zero model tokens, not zero total cost" sample={record.sample} />
-        <Metric title="Outcome verification" value={record.qualityPassed === true ? "Passed" : record.qualityPassed === false ? "Failed" : "Not run"}
-          note="Required quality checks and evidence status" sample={record.sample} />
+          chip={eligible ? "Verified saving" : undefined}
+          tier={eligible ? "proven" : "none"}
+          note={record.mode === "analyze"
+            ? "Imported measured usage, where the source telemetry supports it."
+            : "Measured provider usage priced against the pinned price table."}
+        />
+        <ComparisonCard
+          title="How often AI was needed"
+          comparison={eligible && comparison?.baselineCalls !== undefined
+            ? <span>The all-AI version: <strong>{numberValue(comparison.baselineCalls)} times</strong></span> : undefined}
+          value={record.mode === "analyze" ? numberValue(record.current.calls) : numberValue(record.modelCalls)}
+          unit={record.modelCalls === 1 ? "time" : "times"}
+          chip={eligible && comparison?.baselineCalls !== undefined && record.modelCalls !== undefined
+            && comparison.baselineCalls > record.modelCalls
+            ? `${comparison.baselineCalls - record.modelCalls} AI calls avoided · proven` : undefined}
+          tier={eligible ? "proven" : "none"}
+          note={record.mode === "analyze"
+            ? "Observed on the current route. This is not a governed run."
+            : `${modelOperations.length} model operations · ${efficient.length} efficient / ${advanced.length} advanced calls.`}
+        />
+        <ComparisonCard
+          title="Work done by ordinary software"
+          value={local.length}
+          unit={`of ${completed.length} steps`}
+          chip="No AI tokens used"
+          tier="none"
+          note="No AI tokens does not mean free — normal computing and review time still apply."
+        />
+        <ComparisonCard
+          title="Is the answer still correct?"
+          value={record.qualityPassed === true ? "Yes" : record.qualityPassed === false ? "No" : "Not run"}
+          valueTone={record.qualityPassed === true ? "good" : undefined}
+          chip={record.qualityPassed === true ? "Required checks passed" : undefined}
+          tier="proven"
+          note="Required quality checks and evidence status."
+        />
       </div>}
       <p className="muted">Local software still consumes compute, storage and operating effort. Model spend is not total workflow cost.</p>
       {record.mode === "measure" && record.modelCalls !== undefined && record.modelCalls > record.usage.length &&

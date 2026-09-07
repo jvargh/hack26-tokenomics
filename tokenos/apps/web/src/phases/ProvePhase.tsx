@@ -4,6 +4,12 @@ import type { BaselineRun } from "../api/types";
 import { useRun } from "../state/runContext";
 import { PhaseIntro } from "../components/shared/PhaseIntro";
 import {
+  ClaimStrengthBar,
+  ComparisonCard,
+  WorkAvoidedBanner,
+  type EvidenceTier
+} from "../components/shared/Comparison";
+import {
   GENERATIVE_ROUTES,
   formatCount,
   formatDuration,
@@ -20,6 +26,14 @@ const DECISION_LABEL: Record<string, string> = {
 };
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** Colour family for a route, so the same decision reads the same everywhere. */
+function routeTone(route: string): "local" | "retrieval" | "efficient" | "advanced" {
+  if (route === "advanced_ai") return "advanced";
+  if (route === "efficient_ai") return "efficient";
+  if (route === "retrieval" || route === "reuse") return "retrieval";
+  return "local";
+}
 
 /** Every value on this screen comes from the server proof, never from the browser. */
 export function ProvePhase() {
@@ -58,6 +72,40 @@ export function ProvePhase() {
     (operation) => /summary/i.test(operation.label) && !GENERATIVE_ROUTES.has(operation.route)
   );
 
+  // ---------------------------------------------------------------------------
+  // Technical-evidence derivations. These only summarise the operation records
+  // already in the proof; nothing new is measured or inferred here.
+  // ---------------------------------------------------------------------------
+  const routeBreakdown = (
+    [
+      { key: "local", label: "regular software" },
+      { key: "retrieval", label: "approved retrieval" },
+      { key: "efficient", label: "efficient AI" },
+      { key: "advanced", label: "advanced AI" }
+    ] as const
+  ).map((entry) => ({
+    ...entry,
+    count: proof.operations.filter((operation) => routeTone(operation.route) === entry.key).length
+  }));
+
+  /** Bars are relative, so a single slow step cannot flatten the rest to nothing. */
+  const longestOperation = Math.max(
+    1,
+    ...proof.operations.map((operation) => operation.duration_ms ?? 0)
+  );
+  const largestInput = Math.max(
+    1,
+    ...proof.inputs.map((input) => input.extracted_character_count)
+  );
+  const totalCharacters = proof.inputs.reduce(
+    (sum, input) => sum + input.extracted_character_count,
+    0
+  );
+  // Long input lists are truncated here only; the JSON proof keeps every row.
+  const INPUT_PREVIEW = 6;
+  const visibleInputs = proof.inputs.slice(0, INPUT_PREVIEW);
+  const hiddenInputCount = proof.inputs.length - visibleInputs.length;
+
   const downloadProof = () => {
     const blob = new Blob([JSON.stringify(proof, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -74,11 +122,13 @@ export function ProvePhase() {
     baseline?.available && baseline.saving_claimable && baseline.equal_quality
   );
   const heading = hasVerifiedBaseline
-    ? "Same verified decision. Fewer AI calls. Lower measured cost."
+    ? "Same correct answer. Far less AI. Now proven."
     : !passed
-      ? "Completed with findings"
+      ? "This run finished, but the answer did not pass its checks."
       : decisionComplete
-        ? "Verified review decision. Minimal AI use. Measured cost proof."
+        ? modelCalls === 0
+          ? "Your work is done, and it never needed AI."
+          : "Your work is done, and it barely used AI."
         : `Known findings resolved locally. ${
             unresolvedItems === 1
               ? "One material ambiguity requires"
@@ -107,105 +157,277 @@ export function ProvePhase() {
   // before the user spends anything.
   const projectedBaselineCost = tok?.projected_cost_usd ?? null;
 
+  // ---------------------------------------------------------------------------
+  // Before/after claim strength.
+  //
+  //   "proven"   — the paired all-AI run completed and both routes passed.
+  //   "estimate" — nothing extra was spent; the "before" is this run's own token
+  //                counts repriced as if every step had used a model.
+  //   "none"     — no honest comparison exists, so no benefit is shown.
+  //
+  // Two separate gates, because they protect against different lies:
+  //   * The work-avoided banner needs only passing checks. Local work that really
+  //     ran really did cost no tokens.
+  //   * The cost comparison additionally needs a *complete* decision. An
+  //     unfinished run is cheaper partly because it did less, so comparing it
+  //     against a finished all-AI run would be exactly the false economy this
+  //     product exists to expose.
+  // ---------------------------------------------------------------------------
+  const measuredBaseline = hasVerifiedBaseline ? (baseline?.baseline ?? null) : null;
+  const workAvoidedShown = passed;
+  const claimsAllowed = passed && decisionComplete;
+  const evidence: EvidenceTier = !claimsAllowed
+    ? "none"
+    : measuredBaseline
+      ? "proven"
+      : "estimate";
+  const showComparison = evidence !== "none";
+
+  /** The all-AI cost to compare against: measured when a baseline ran, otherwise
+   *  the local estimate. Null when neither is available (e.g. no price table). */
+  const comparisonCost = measuredBaseline?.cost_usd ?? projectedBaselineCost;
+  const comparisonCalls = measuredBaseline?.model_calls ?? totalOps;
+  const evidenceWord = evidence === "proven" ? "proven" : "estimate";
+  const beforeLead = measuredBaseline ? "The all-AI version:" : "If AI did every step:";
+
+  /** Only claim a reduction when the comparison is actually cheaper. A governed
+   *  run that costs the same or more must say so rather than hide it. */
+  const isCheaper = comparisonCost !== null && comparisonCost > cost;
+  const percentLower =
+    isCheaper && comparisonCost ? Math.round(((comparisonCost - cost) / comparisonCost) * 100) : null;
+  const callsAvoided = Math.max(0, comparisonCalls - modelCalls);
+
+  const costChip =
+    comparisonCost === null
+      ? undefined
+      : percentLower !== null
+        ? `${percentLower}% lower · ${evidenceWord}`
+        : "No reduction found";
+  const costChipTier: EvidenceTier = percentLower === null ? "none" : evidence;
+
+  const heroSummary = measuredBaseline
+    ? `The all-AI version used a model for all ${comparisonCalls} and reached the same answer.`
+    : !decisionComplete
+      ? `Ordinary software settled everything the rules could decide. ${plural(
+          unresolvedItems,
+          "item"
+        )} still needs AI or human review before this decision is final.`
+      : `Ordinary software handled them — reading files, checking rules, matching amounts. ${
+          modelCalls === 0
+            ? "No step needed a model."
+            : `Only ${plural(modelAssistedOps, "step")} genuinely needed a model.`
+        }`;
+
   return (
     <div className="phase">
       <PhaseIntro heading={heading} supporting={summary} focusKey="prove" />
 
-      {/* 1. ECONOMICS PROOF */}
+      {/* 1. THE WIN — how much work never needed a model at all */}
+      {workAvoidedShown ? (
+        <WorkAvoidedBanner
+          localOperations={localOps}
+          totalOperations={totalOps}
+          completed={decisionComplete}
+          detail={heroSummary}
+        />
+      ) : null}
+
+      {/* 2. BEFORE / AFTER CARDS */}
       <div className="cards prove-cards">
-        <div className="card">
-          <div className="card-label">Model spend</div>
-          <div className="card-value">{formatUsd(cost, true)}</div>
-          <div className="card-note">
-            {modelCalls > 0
+        <ComparisonCard
+          title="What this run cost"
+          comparison={
+            showComparison && comparisonCost !== null ? (
+              <span>
+                {beforeLead} <strong>{formatUsd(comparisonCost, true)}</strong>
+              </span>
+            ) : undefined
+          }
+          value={formatUsd(cost, true)}
+          chip={showComparison ? costChip : undefined}
+          tier={costChipTier}
+          note={
+            modelCalls > 0
               ? `${formatCount(totalTokens)} tokens on ${
                   proof.usage.deployments.join(", ") || "Foundry"
-                }`
-              : "Zero model spend · every operation completed locally"}
-          </div>
-          <div className="proof-status is-measured">
-            {modelCalls > 0 ? "Measured · model response usage" : "Measured · no model spend"}
-          </div>
-        </div>
+                }.`
+              : "No model was used, so nothing was spent on tokens."
+          }
+        />
 
-        <div className="card">
-          <div className="card-label">Model calls</div>
-          <div className="card-value">
-            {modelCalls}{" "}
-            <span className="card-value-sub">
-              {modelCalls === 1 ? "model call" : "model calls"} across {totalOps} operations
-            </span>
-          </div>
-          <div className="card-note">
-            {modelCalls > 0
-              ? `${modelAssistedOps} model-assisted ${
-                  modelAssistedOps === 1 ? "operation" : "operations"
-                } · ${advancedOps} advanced ${advancedOps === 1 ? "escalation" : "escalations"}`
-              : "0 calls needed · every rule resolved locally"}
-          </div>
-          <div className="proof-status is-measured">
-            {modelCalls === 0
-              ? "No model call authorized"
-              : `${plural(modelCalls, "model call")} authorized`}
-          </div>
-        </div>
+        <ComparisonCard
+          title="How often AI was needed"
+          comparison={
+            showComparison ? (
+              <span>
+                {beforeLead} <strong>{plural(comparisonCalls, "time")}</strong>
+              </span>
+            ) : undefined
+          }
+          value={modelCalls}
+          unit={modelCalls === 1 ? "time" : "times"}
+          chip={
+            showComparison && callsAvoided > 0
+              ? `${plural(callsAvoided, "AI call")} avoided · ${evidenceWord}`
+              : undefined
+          }
+          tier={evidence}
+          note={
+            modelCalls === 0
+              ? "Every step was settled by ordinary software."
+              : `Used only for the ${plural(modelAssistedOps, "step")} that needed judgement.`
+          }
+        />
 
-        <div className="card">
-          <div className="card-label">Non-AI operations</div>
-          <div className="card-value">
-            {localOps} <span className="card-value-sub">of {totalOps} completed locally</span>
-          </div>
-          <div className="card-note">
-            Deterministic rules, duplicate hashing, approved retrieval, and the decision summary
-          </div>
-          <div className="proof-status is-measured">Zero tokens spent</div>
-        </div>
+        <ComparisonCard
+          title={measuredBaseline ? "Cost per correct answer" : "Work done by ordinary software"}
+          comparison={
+            measuredBaseline ? (
+              <span>
+                {beforeLead} <strong>{formatUsd(measuredBaseline.cost_usd, true)}</strong>
+              </span>
+            ) : showComparison ? (
+              <span>
+                {beforeLead} <strong>0 steps</strong>
+              </span>
+            ) : undefined
+          }
+          value={measuredBaseline ? formatUsd(cost, true) : localOps}
+          unit={measuredBaseline ? undefined : `of ${totalOps} steps`}
+          chip={
+            measuredBaseline ? "Verified saving" : showComparison ? "No AI tokens used" : undefined
+          }
+          tier={measuredBaseline ? "proven" : "none"}
+          note={
+            measuredBaseline
+              ? "Counts only answers that passed every quality check."
+              : "No AI tokens does not mean free — normal computing and review time still apply."
+          }
+        />
 
-        <div className="card">
-          <div className="card-label">Outcome verification</div>
-          <div className={`card-value ${passed && decisionComplete ? "text-good" : ""}`}>
-            {passed && decisionComplete ? "Passed" : passed ? "Incomplete" : "Failed"}
-          </div>
-          <div className="card-note">
-            {passed && decisionComplete
-              ? "Citations, amounts and limits verified against source text"
+        <ComparisonCard
+          title="Is the answer still correct?"
+          comparison={
+            measuredBaseline ? (
+              <span>
+                {beforeLead} <strong>also passed</strong>
+              </span>
+            ) : undefined
+          }
+          value={passed && decisionComplete ? "Yes" : passed ? "Incomplete" : "No"}
+          valueTone={passed && decisionComplete ? "good" : undefined}
+          chip={
+            passed && decisionComplete
+              ? measuredBaseline
+                ? "Both versions passed"
+                : `All ${proof.verification.length} checks passed`
+              : undefined
+          }
+          tier="proven"
+          note={
+            passed && decisionComplete
+              ? measuredBaseline
+                ? "Both routes were given identical inputs and had to pass identical checks."
+                : "Every required check passed against the supplied source material."
               : passed
-                ? `Deterministic checks passed · ${unresolvedItems} item(s) unresolved`
-                : "Verification checks failed"}
-          </div>
-          <div
-            className={`proof-status ${passed && decisionComplete ? "is-measured" : "is-incomplete"}`}
-          >
-            {decisionComplete ? "Outcome verified" : "Decision incomplete"}
-          </div>
-        </div>
+                ? `Checks passed, but ${plural(unresolvedItems, "item")} still needs review.`
+                : "Some quality checks did not pass."
+          }
+        />
       </div>
 
-      {/* Volume rate projection — never described as a saving before a paired run */}
-      <div className="volume-projection-box">
-        <div className="volume-projection-main">
-          {hasVerifiedBaseline && baseline?.baseline ? (
-            <span>
-              <strong>Verified saving at 10,000 equivalent runs:</strong>{" "}
-              <strong className="text-good">
-                ${((baseline.baseline.cost_usd - cost) * 10000).toFixed(2)}
-              </strong>{" "}
-              (${costPer10k} TokenOS governed against $
-              {(baseline.baseline.cost_usd * 10000).toFixed(2)} measured all-AI baseline, both paths
-              passing the same checks).
-            </span>
-          ) : (
-            <span>
-              <strong>Projected spend at the current measured run rate:</strong> ${costPer10k} per
-              10,000 equivalent runs.{" "}
-              <span className="volume-projection-disclaimer">Not a verified saving.</span>
-            </span>
-          )}
-        </div>
-      </div>
+      {/* 3. CLAIM STRENGTH — says plainly how strong the comparison is */}
+      {evidence === "none" ? (
+        <ClaimStrengthBar
+          tier="none"
+          badge={passed ? "No comparison yet" : "No savings shown"}
+          headline={
+            passed
+              ? "Cost comparisons are held back until the decision is finished."
+              : "Cost comparisons are hidden because the answer was not verified."
+          }
+          detail={
+            passed ? (
+              <>
+                {plural(unresolvedItems, "item")} still needs AI or human review. This run is
+                cheaper partly because it has not finished, so comparing it against a completed
+                all-AI run would overstate the benefit. Finish the review to see the comparison.
+              </>
+            ) : (
+              <>
+                {plural(
+                  proof.verification.filter((check) => !check.passed).length,
+                  "quality check"
+                )}{" "}
+                did not pass. You can still see exactly what this run spent, but TokenOS shows no
+                saving and no comparison until the answer is correct. A cheaper wrong answer is not
+                a saving.
+              </>
+            )
+          }
+        />
+      ) : measuredBaseline ? (
+        <ClaimStrengthBar
+          tier="proven"
+          badge="Proven saving"
+          headline={`${formatUsd(
+            measuredBaseline.cost_usd - cost,
+            true
+          )} cheaper on this run, with the same correct answer.`}
+          detail={
+            <>
+              Both versions used the same documents, the same required answer format, the same
+              quality checks and the same prices — and both passed. At 10,000 runs that is about{" "}
+              <strong>${((measuredBaseline.cost_usd - cost) * 10000).toFixed(2)}</strong>, which is a
+              forecast rather than a measurement.
+            </>
+          }
+        />
+      ) : (
+        <ClaimStrengthBar
+          tier="estimate"
+          badge="Estimate"
+          headline="These savings are an estimate, not yet proven."
+          detail={
+            <>
+              We calculated it from this run&rsquo;s real token counts, assuming every step had used{" "}
+              <strong>
+                {tok?.comparison_deployment ||
+                  proof.usage.deployments.join(", ") ||
+                  "the comparison model"}
+              </strong>
+              . To prove it, TokenOS can run the same work the all-AI way and measure both.
+              {cost > 0 ? ` Projected spend at the current rate: $${costPer10k} per 10,000 runs.` : ""}
+            </>
+          }
+        >
+          {/* Links to the acknowledgement gate rather than duplicating it: model
+              spend must stay behind a single explicit consent control. */}
+          <a className="btn btn-primary" href="#run-all-ai-comparison">
+            Run the all-AI comparison
+          </a>
+        </ClaimStrengthBar>
+      )}
 
-      {/* 2. ROUTE FLOW AND THE REASON A MODEL WAS REACHED */}
+      {/* 4. ROUTE PICTURE AND THE REASON A MODEL WAS REACHED.
+          The hypothetical all-AI shape sits directly above what actually ran, so
+          the contrast is visible without a second route diagram. */}
       <section className="panel route-flow-panel">
+        {showComparison ? (
+          <div className="route-flow-before">
+            <span className="route-flow-before-label">
+              {measuredBaseline ? "The all-AI version" : "If AI did every step"}
+            </span>
+            <span className="route-comparison-step is-ghosted">
+              {plural(comparisonCalls, "AI call")}
+            </span>
+            <span className="route-comparison-arrow">→</span>
+            <span className="route-comparison-step is-ghosted">0 steps by software</span>
+            <span className="route-comparison-suffix">
+              {measuredBaseline ? "measured" : "estimate"}
+            </span>
+          </div>
+        ) : null}
         <div className="route-flow-row">
           <div className="route-flow-step step-local">
             <span className="route-flow-badge">{localOps} local operations</span>
@@ -240,17 +462,17 @@ export function ProvePhase() {
           {modelCalls > 0 ? (
             <p>
               {whyAi[0]?.why_ai ??
-                "Deterministic policy checks could not settle a contested charge, so the efficient model was reached."}{" "}
-              TokenOS sent only the contested charge and the relevant policy excerpt, then verified
-              the returned citation and amount against the extracted source text.
+                "Deterministic checks could not settle the work, so the efficient model was reached."}{" "}
+              TokenOS sent only the unresolved item and the evidence it needed, then verified the
+              returned answer against the extracted source text.
               {deterministicSummary
                 ? " The decision summary was then formatted deterministically with zero model tokens."
                 : ""}
             </p>
           ) : (
             <p>
-              Every charge line was settled deterministically by software rules against the policy
-              thresholds. No contested interpretation remained, so no generative tokens were spent.
+              Every step was settled deterministically by software rules against the supplied
+              evidence. No contested interpretation remained, so no generative tokens were spent.
               {tok?.routing?.note ? ` ${tok.routing.note}` : ""}
             </p>
           )}
@@ -264,9 +486,9 @@ export function ProvePhase() {
             <div className="section-kicker">Governance</div>
             <h3>Route breakdown</h3>
             <p>
-              {plural(totalOps, "review operation")} ran. {localOps} completed without generative AI
-              and {routeSentence.charAt(0).toLowerCase() + routeSentence.slice(1)} Only charges
-              requiring subjective policy interpretation were allowed to reach a model.
+              {plural(totalOps, "operation")} ran. {localOps} completed without generative AI and{" "}
+              {routeSentence.charAt(0).toLowerCase() + routeSentence.slice(1)} Only work that needed
+              subjective interpretation was allowed to reach a model.
             </p>
           </div>
           <div className="table-wrap">
@@ -353,7 +575,7 @@ export function ProvePhase() {
       ) : null}
 
       {/* 5. MEASURED ALL-AI COMPARISON */}
-      <section className="panel baseline-comparison-section">
+      <section className="panel baseline-comparison-section" id="run-all-ai-comparison">
         <div className="section-kicker">Baseline comparison</div>
         <h3>Run measured all-AI comparison</h3>
         <p className="muted" style={{ margin: "4px 0 14px" }}>
@@ -594,107 +816,92 @@ export function ProvePhase() {
         </summary>
 
         <div className="evidence-content stack" style={{ marginTop: 16 }}>
-          {tok ? (
-            <div className="economics-basis-box">
-              <strong>How this is calculated.</strong> {tok.basis}. Input tokens are counted from the
-              text each operation actually read, and output tokens from the result it actually
-              produced. Only the routing of the comparator is hypothetical — the token counts are
-              measured.
-              {tok.price_effective_date
-                ? ` Price effective ${tok.price_effective_date}${
-                    tok.price_source ? ` · ${tok.price_source}` : ""
-                  }.`
-                : ""}
-            </div>
-          ) : null}
-
-          {proof.comparison_contract ? (
-            <div className="contract-block">
-              <strong>Comparison contract — what makes this comparison valid</strong>
-              <ul>
-                <li>Prompt version: {proof.comparison_contract.prompt_version}</li>
-                <li>Output schema: {proof.comparison_contract.output_schema_version}</li>
-                <li>
-                  Maximum output length: {proof.comparison_contract.max_output_tokens} tokens, both
-                  routes
-                </li>
-                <li>Citation requirement: {proof.comparison_contract.citation_requirement}</li>
-                <li>Quality checks: {proof.comparison_contract.quality_checks.join(", ")}</li>
-                <li>Test set: {proof.comparison_contract.test_set}</li>
-              </ul>
-              <p className="muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
-                {proof.comparison_contract.note}
-              </p>
-            </div>
-          ) : null}
-
-          <dl
-            className="evidence-list"
-            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}
-          >
-            <div>
-              <dt>Run ID</dt>
-              <dd>{proof.run_id}</dd>
-            </div>
-            <div>
-              <dt>Workflow</dt>
-              <dd>{proof.workflow_id}</dd>
-            </div>
-            <div>
-              <dt>Input evidence</dt>
-              <dd>
-                {proof.input_evidence} · {proof.inputs.length} file(s)
-              </dd>
-            </div>
-            <div>
-              <dt>Model mode</dt>
-              <dd>
-                {proof.usage.model_mode}
+          {/* Identity as chips: a wrapping grid left ragged gaps whenever one
+              workflow had longer values than another. */}
+          <div className="evidence-identity">
+            <span className="evidence-tag is-mono">
+              <i>Run</i>
+              <b>{proof.run_id}</b>
+            </span>
+            <span className="evidence-tag">
+              <i>Workflow</i>
+              <b>{proof.workflow_id}</b>
+            </span>
+            <span className="evidence-tag">
+              <i>Inputs</i>
+              <b>
+                {proof.input_evidence} · {plural(proof.inputs.length, "file")}
+              </b>
+            </span>
+            <span className="evidence-tag">
+              <i>Tokens</i>
+              <b>
+                {formatCount(proof.usage.input_tokens)} in ·{" "}
+                {formatCount(proof.usage.output_tokens)} out
+              </b>
+            </span>
+            <span className="evidence-tag">
+              <i>Wall time</i>
+              <b>{formatDuration(proof.usage.duration_ms)}</b>
+            </span>
+            <span className="evidence-tag is-mono">
+              <i>Model</i>
+              <b>
                 {proof.usage.deployments.length
-                  ? ` · ${proof.usage.deployments.join(", ")}`
-                  : " · no model route used"}
-              </dd>
-            </div>
-            <div>
-              <dt>Measurement</dt>
-              <dd>{proof.measurement_label}</dd>
-            </div>
-            <div>
-              <dt>Measured usage</dt>
-              <dd>
-                {formatCount(proof.usage.input_tokens)} in · {formatCount(proof.usage.output_tokens)}{" "}
-                out · {formatDuration(proof.usage.duration_ms)}
-              </dd>
-            </div>
-          </dl>
-
-          <div className="table-wrap">
-            <table>
-              <caption>Inputs read by the server</caption>
-              <thead>
-                <tr>
-                  <th>File</th>
-                  <th>Role</th>
-                  <th>SHA-256</th>
-                  <th className="numeric">Characters</th>
-                </tr>
-              </thead>
-              <tbody>
-                {proof.inputs.map((input) => (
-                  <tr key={input.upload_id}>
-                    <td>{input.name}</td>
-                    <td>{input.role}</td>
-                    <td>{input.sha256.slice(0, 16)}…</td>
-                    <td className="numeric">{formatCount(input.extracted_character_count)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                  ? proof.usage.deployments.join(", ")
+                  : `${proof.usage.model_mode} · no model route used`}
+              </b>
+            </span>
+            <span className="evidence-tag is-sample">
+              <i>Measured</i>
+              <b>{proof.measurement_label.replace(/^Measured\s+/i, "")}</b>
+            </span>
           </div>
 
+          {/* The routing decision is the point of the product, so show its shape
+              before the per-row detail. Counts come from the operation records. */}
+          <div className="route-ladder">
+            <div className="route-ladder-head">
+              <span className="route-ladder-title">
+                How the {plural(totalOps, "operation")} {totalOps === 1 ? "was" : "were"} routed
+              </span>
+              <span className="route-ladder-sub">
+                {modelCalls === 0
+                  ? "No model call was needed"
+                  : `${plural(modelCalls, "model call")} · ${formatUsd(cost, true)} measured`}
+              </span>
+            </div>
+            <div className="route-ladder-bar">
+              {routeBreakdown.map((entry) =>
+                entry.count ? (
+                  <span
+                    key={entry.key}
+                    className={`route-ladder-seg is-${entry.key}`}
+                    style={{ width: `${(entry.count / totalOps) * 100}%` }}
+                  />
+                ) : null
+              )}
+            </div>
+            <div className="route-ladder-legend">
+              {routeBreakdown.map((entry) => (
+                <span key={entry.key}>
+                  <span className={`route-ladder-dot is-${entry.key}`} aria-hidden="true" />
+                  <b>{entry.count}</b> {entry.label}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="evidence-section-head">
+            <h4>Operations</h4>
+            <span>
+              {plural(totalOps, "step")} ·{" "}
+              {modelCalls === 0 ? "none reached a model" : `${modelAssistedOps} reached a model`}
+            </span>
+          </div>
           <div className="table-wrap">
-            <table>
-              <caption>Operations, routes, and measured cost</caption>
+            <table className="evidence-table">
+              <caption className="sr-only">Operations, routes, and measured cost</caption>
               <thead>
                 <tr>
                   <th>Operation</th>
@@ -704,17 +911,158 @@ export function ProvePhase() {
                 </tr>
               </thead>
               <tbody>
-                {proof.operations.map((operation) => (
-                  <tr key={operation.operation_id}>
-                    <td>{operation.label}</td>
-                    <td>{routeLabel(operation.route)}</td>
-                    <td className="numeric">{formatDuration(operation.duration_ms ?? 0)}</td>
-                    <td className="numeric">{formatUsd(operation.actual_cost_usd ?? 0, true)}</td>
+                {proof.operations.map((operation) => {
+                  const spend = operation.actual_cost_usd ?? 0;
+                  const duration = operation.duration_ms ?? 0;
+                  const tone = routeTone(operation.route);
+                  return (
+                    <tr key={operation.operation_id} className={spend > 0 ? `is-paid is-${tone}` : ""}>
+                      <td className="evidence-op">{operation.label}</td>
+                      <td>
+                        <span className={`route-pill is-${tone}`}>{routeLabel(operation.route)}</span>
+                      </td>
+                      <td>
+                        <span className="evidence-meter">
+                          <span
+                            className={`evidence-meter-bar is-${tone}`}
+                            style={{
+                              width: `${Math.max(2, Math.round((duration / longestOperation) * 110))}px`
+                            }}
+                          />
+                          <span className={`numeric${duration < 1 ? " muted" : ""}`}>
+                            {formatDuration(duration)}
+                          </span>
+                        </span>
+                      </td>
+                      <td className={`numeric${spend > 0 ? ` evidence-cost is-${tone}` : " muted"}`}>
+                        {spend > 0 ? formatUsd(spend, true) : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>Total</td>
+                  <td className="muted">
+                    {localOps} of {totalOps} used no model
+                  </td>
+                  <td className="numeric">{formatDuration(proof.usage.duration_ms)}</td>
+                  <td className={`numeric${cost > 0 ? " evidence-cost is-efficient" : " muted"}`}>
+                    {cost > 0 ? formatUsd(cost, true) : "—"}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div className="evidence-section-head">
+            <h4>Inputs read by the server</h4>
+            <span>
+              {plural(proof.inputs.length, "file")} ·{" "}
+              {formatCount(totalCharacters)} characters · SHA-256 pinned
+            </span>
+          </div>
+          <div className="table-wrap">
+            <table className="evidence-table">
+              <caption className="sr-only">Inputs read by the server</caption>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>SHA-256</th>
+                  <th className="numeric">Characters</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleInputs.map((input) => (
+                  <tr key={input.upload_id}>
+                    <td>
+                      <span className="evidence-file">{input.name}</span>
+                      <span className="evidence-role">{input.role}</span>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="evidence-hash"
+                        title={`${input.sha256} — click to copy`}
+                        onClick={() => void navigator.clipboard?.writeText(input.sha256)}
+                      >
+                        {input.sha256.slice(0, 16)}…
+                      </button>
+                    </td>
+                    <td>
+                      <span className="evidence-meter">
+                        <span
+                          className="evidence-meter-bar is-chars"
+                          style={{
+                            width: `${Math.max(
+                              2,
+                              Math.round(
+                                (input.extracted_character_count / largestInput) * 110
+                              )
+                            )}px`
+                          }}
+                        />
+                        <span className="numeric">
+                          {formatCount(input.extracted_character_count)}
+                        </span>
+                      </span>
+                    </td>
                   </tr>
                 ))}
+                {hiddenInputCount ? (
+                  <tr>
+                    <td colSpan={3} className="muted evidence-more">
+                      …{plural(hiddenInputCount, "more file")}. The full list stays in the JSON run
+                      proof.
+                    </td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
+
+          {/* The prose belongs to auditors, so it sits after the evidence rather
+              than in front of it. */}
+          <div className="evidence-section-head">
+            <h4>How to check this yourself</h4>
+            <span />
+          </div>
+          {tok ? (
+            <details className="evidence-disclosure">
+              <summary>How the cost was calculated</summary>
+              <div className="evidence-disclosure-body">
+                {tok.basis}. Input tokens are counted from the text each operation actually read, and
+                output tokens from the result it actually produced. Only the routing of the
+                comparator is hypothetical — the token counts are measured.
+                {tok.price_effective_date
+                  ? ` Price effective ${tok.price_effective_date}${
+                      tok.price_source ? ` · ${tok.price_source}` : ""
+                    }.`
+                  : ""}
+              </div>
+            </details>
+          ) : null}
+
+          {proof.comparison_contract ? (
+            <details className="evidence-disclosure">
+              <summary>Comparison contract — what makes this comparison valid</summary>
+              <div className="evidence-disclosure-body">
+                <ul>
+                  <li>Prompt version: {proof.comparison_contract.prompt_version}</li>
+                  <li>Output schema: {proof.comparison_contract.output_schema_version}</li>
+                  <li>
+                    Maximum output length: {proof.comparison_contract.max_output_tokens} tokens, both
+                    routes
+                  </li>
+                  <li>Citation requirement: {proof.comparison_contract.citation_requirement}</li>
+                  <li>Quality checks: {proof.comparison_contract.quality_checks.join(", ")}</li>
+                  <li>Test set: {proof.comparison_contract.test_set}</li>
+                </ul>
+                {proof.comparison_contract.note}
+              </div>
+            </details>
+          ) : null}
 
           <div className="raw-proof-box">
             <p className="muted" style={{ margin: "0 0 8px", fontSize: 12.5 }}>

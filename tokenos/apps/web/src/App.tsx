@@ -66,7 +66,6 @@ function Shell() {
       <AppHeader
         onOpenHistory={() => setHistoryOpen(true)}
         onOpenFoundryConfig={() => setFoundryModalOpen(true)}
-        serverManaged={optimizationMode}
         onNewRun={startNew}
       />
       {historyError && <p role="alert" className="error-text">{historyError}</p>}
@@ -88,10 +87,11 @@ function Shell() {
           void loadRun(id).catch((error: unknown) => setHistoryError(error instanceof Error ? error.message : "Could not open the proof."));
         }
       }} /> : null}
-      {!optimizationMode && <FoundryConfigModal
+      {/* Mounted in every mode so the header's Foundry Config button always works. */}
+      <FoundryConfigModal
         isOpen={foundryModalOpen}
         onClose={() => setFoundryModalOpen(false)}
-      />}
+      />
     </div>
   );
 }
