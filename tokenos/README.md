@@ -13,6 +13,9 @@ See [optimization API and local Foundry configuration](services/tokenos-api/OPTI
 for request shapes, immutable Protect contracts, registered scopes, pricing, and
 explicit limitations. The optimization UI never handles provider credentials.
 
+Working on the code itself? Read the [engine deep dive](ENGINE-DEEP-DIVE.md) — control flow,
+invariants, extension recipes, and where every rule lives.
+
 ```
 tokenos/
   apps/web/               React + Vite + TypeScript UI
