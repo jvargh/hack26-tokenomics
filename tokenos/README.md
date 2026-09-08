@@ -16,6 +16,9 @@ explicit limitations. The optimization UI never handles provider credentials.
 Working on the code itself? Read the [engine deep dive](ENGINE-DEEP-DIVE.md) — control flow,
 invariants, extension recipes, and where every rule lives.
 
+Evaluating the product's value? Read [why TokenOS is essential to tokenomics](TOKENOS-BENEFITS.md) —
+seven benefits, each backed by the mechanism that enforces it.
+
 ```
 tokenos/
   apps/web/               React + Vite + TypeScript UI
