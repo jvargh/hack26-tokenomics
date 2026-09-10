@@ -184,8 +184,19 @@ $imageRef = "$Registry.azurecr.io/${Repository}@$digest"
 Write-Step 'Updating Container App'
 Write-Host 'Only the image changes. Environment variables, identity and ingress are untouched.'
 
-az containerapp update -n $ContainerApp -g $ResourceGroup --image $imageRef -o none 2>&1 | Out-Host
-if ($LASTEXITCODE -ne 0) { Fail 'Container App update failed.' }
+# Retried: this call reaches the control plane over a long-lived connection and
+# can fail with a transient reset. Retrying is safe because setting the same
+# image reference twice converges on the same state.
+$updated = $false
+for ($attempt = 1; $attempt -le 4; $attempt++) {
+    az containerapp update -n $ContainerApp -g $ResourceGroup --image $imageRef -o none 2>&1 | Out-Host
+    if ($LASTEXITCODE -eq 0) { $updated = $true; break }
+    if ($attempt -lt 4) {
+        Write-Host "Update attempt $attempt failed; retrying in 20s." -ForegroundColor Yellow
+        Start-Sleep -Seconds 20
+    }
+}
+if (-not $updated) { Fail 'Container App update failed after 4 attempts.' }
 
 # Confirm the app really is on the image just built. The update call returning
 # cleanly is not the same as the intended image being live.
