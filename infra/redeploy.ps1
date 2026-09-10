@@ -125,20 +125,38 @@ Write-Host "Current image : $($existing.image)"
 # ------------------------------------------------------------------- build
 
 Write-Step 'Building image in ACR'
-Write-Host 'Log streaming may drop out on Windows; build status is polled below.'
+Write-Host 'Log streaming may drop out on Windows; build status is confirmed below.'
+
+# Record the newest run before building. `az acr build` does not return its run
+# id, and "the most recent run" is not a safe proxy: if the build never starts
+# (a bad path fails client-side) the most recent run is a *previous, successful*
+# build, and trusting it would report success while shipping nothing.
+$priorRunId = az acr task list-runs -r $Registry --top 1 --query "[0].runId" -o tsv 2>$null
+
+# --file must be an absolute path. The Azure CLI resolves it against the current
+# directory rather than the build context, so a relative name fails whenever the
+# script is invoked from anywhere but the context directory.
+$dockerfile = Join-Path $buildContext 'Dockerfile'
 
 az acr build --registry $Registry `
     --image "${Repository}:${Tag}" `
     --image "${Repository}:latest" `
-    --file Dockerfile $buildContext 2>&1 | Out-Host
+    --file $dockerfile $buildContext 2>&1 | Out-Host
 
-# Exit code is unreliable here: the CLI can die on a log-stream encoding error
-# while the remote build carries on and succeeds. Trust the run record instead.
+# The CLI exit code is unreliable: it can die on a log-stream encoding error
+# while the remote build carries on and succeeds. Confirm against the run record.
 Write-Step 'Confirming build result'
 
-$runId = az acr task list-runs -r $Registry --top 1 --query "[0].runId" -o tsv 2>$null
-if (-not $runId) { Fail 'Could not identify the ACR build run.' }
-Write-Host "Run : $runId"
+$runId = $null
+for ($i = 0; $i -lt 12; $i++) {
+    $candidate = az acr task list-runs -r $Registry --top 1 --query "[0].runId" -o tsv 2>$null
+    if ($candidate -and $candidate -ne $priorRunId) { $runId = $candidate; break }
+    Start-Sleep -Seconds 5
+}
+if (-not $runId) {
+    Fail 'No new ACR build run was created, so the build never started. Check the error above.'
+}
+Write-Host "Run : $runId (previous: $(if ($priorRunId) { $priorRunId } else { 'none' }))"
 
 $status = $null
 for ($i = 0; $i -lt 80; $i++) {
@@ -155,9 +173,10 @@ Write-Host 'Build succeeded.' -ForegroundColor Green
 
 Write-Step 'Resolving image digest'
 
-$digest = az acr manifest list-metadata -r $Registry -n $Repository `
-    --orderby time_desc --top 1 --query "[0].digest" -o tsv 2>$null
-if (-not $digest) { Fail 'Could not resolve the image digest.' }
+# Resolve by the tag just built, not by "most recent manifest": another push to
+# the same repository would otherwise silently redirect this deployment.
+$digest = az acr repository show -n $Registry --image "${Repository}:${Tag}" --query digest -o tsv 2>$null
+if (-not $digest) { Fail "Could not resolve a digest for ${Repository}:${Tag}." }
 Write-Host "Digest : $digest"
 
 $imageRef = "$Registry.azurecr.io/${Repository}@$digest"
@@ -167,6 +186,15 @@ Write-Host 'Only the image changes. Environment variables, identity and ingress 
 
 az containerapp update -n $ContainerApp -g $ResourceGroup --image $imageRef -o none 2>&1 | Out-Host
 if ($LASTEXITCODE -ne 0) { Fail 'Container App update failed.' }
+
+# Confirm the app really is on the image just built. The update call returning
+# cleanly is not the same as the intended image being live.
+$liveImage = az containerapp show -n $ContainerApp -g $ResourceGroup `
+    --query "properties.template.containers[0].image" -o tsv 2>$null
+if ($liveImage -ne $imageRef) {
+    Fail "Container App reports image '$liveImage' but '$imageRef' was deployed."
+}
+Write-Host 'Image reference confirmed on the app.'
 
 Write-Step 'Waiting for the new revision'
 
