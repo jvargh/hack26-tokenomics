@@ -309,6 +309,52 @@ deployment. Values such as `TOKENOS_FOUNDRY_ACCOUNT_NAME`,
 `TOKENOS_FOUNDRY_RESOURCE_GROUP_NAME`, `TOKENOS_FOUNDRY_BASE_URL`, and the model
 deployment names are supplied through the selected `azd` environment.
 
+### Redeploying a code change
+
+Once the application is provisioned, shipping a code change does not need
+`azd up`. Re-running provisioning against live infrastructure is a much larger
+action than a code change warrants, and it can disturb environment variables,
+identity, ingress and CORS that are already correct on the running app.
+[`infra/redeploy.ps1`](infra/redeploy.ps1) rebuilds the image and repoints the
+existing Container App at it, changing nothing else:
+
+```powershell
+Set-Location .\infra
+.\redeploy.ps1
+```
+
+Use `azd up` instead for first-time provisioning, or when the Bicep itself
+changes.
+
+The script:
+
+- refuses to run with a dirty working tree, because it tags the image with the
+  current commit SHA and tagging modified content with a clean commit's SHA
+  would make the image misrepresent what it contains (override with
+  `-AllowDirty` and an explicit `-Tag`);
+- builds in Azure Container Registry rather than locally, so no Docker daemon is
+  required and the build host has the network access the local Docker build
+  lacks (see [`tokenos/vendor-wheels/README.md`](tokenos/vendor-wheels/README.md));
+- deploys by image **digest** rather than tag, so the revision records exactly
+  what shipped — a tag can later be moved, a digest cannot;
+- waits for the new revision to reach a running state and then verifies
+  `/health`;
+- finishes by running the read-only post-deploy check in
+  `tokenos/services/tokenos-api/tests/browser/smoke_deployed.py`, which confirms
+  the shipped bundle renders and lays out correctly without starting a workflow.
+  That last point matters: a deployed app in `foundry` mode spends real tokens
+  on every run, so verification must not trigger one.
+
+Targets default to the existing deployment and can be overridden with
+`-ResourceGroup`, `-ContainerApp`, `-Registry` and `-Repository`. Run
+`Get-Help .\redeploy.ps1 -Full` for the complete parameter list.
+
+One rough edge worth knowing: on Windows the `az acr build` log stream can die
+with a `UnicodeEncodeError` because the web build prints a character the Azure
+CLI's console writer cannot encode. The remote build is unaffected. The script
+therefore ignores the CLI exit code and polls the ACR run record for the real
+result.
+
 ## Optional Microsoft Foundry configuration
 
 Skip this section for local-only evaluation. It assumes existing model deployments;
@@ -480,7 +526,8 @@ Results there are snapshots of executed validation, not promises about a future 
 |   |-- main.bicep                  Subscription-scope deployment entry point
 |   |-- main.parameters.json        azd environment parameter mapping
 |   |-- resources.bicep             Application infrastructure
-|   `-- foundry-access.bicep        Optional access to an existing Foundry account
+|   |-- foundry-access.bicep        Optional access to an existing Foundry account
+|   `-- redeploy.ps1                Rebuild and roll out a code change (no reprovision)
 `-- tokenos/                        Runnable application
     |-- apps/web/                   React, TypeScript, and Vite
     |-- services/tokenos-api/       FastAPI, execution, verification, and tests

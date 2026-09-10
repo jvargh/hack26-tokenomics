@@ -1,20 +1,26 @@
-"""Post-deploy smoke test against the live Container App.
+"""Post-deploy smoke test against a deployed Container App.
 
 Deliberately read-only: it does not start a workflow, because the deployed app
 runs in `foundry` mode where every run spends real tokens on the owner's
 subscription. It checks that the shipped bundle renders, navigates and lays out
 correctly, which is what the deployment itself can break.
 
-Run: python tests/browser/smoke_deployed.py
+Run: python tests/browser/smoke_deployed.py [base-url]
 """
 
 from __future__ import annotations
 
+import os
 import sys
 
 from playwright.sync_api import sync_playwright
 
-BASE = "https://tokenos-hack26.yellowwater-54592620.eastus.azurecontainerapps.io"
+DEFAULT_BASE = "https://tokenos-hack26.yellowwater-54592620.eastus.azurecontainerapps.io"
+BASE = (
+    sys.argv[1]
+    if len(sys.argv) > 1
+    else os.environ.get("TOKENOS_SMOKE_BASE_URL", DEFAULT_BASE)
+).rstrip("/")
 
 failures: list[str] = []
 
@@ -27,6 +33,7 @@ def check(name: str, condition: bool, detail: str = "") -> None:
 
 
 with sync_playwright() as playwright:
+    print(f"Target: {BASE}")
     browser = playwright.chromium.launch(channel="msedge")
     page = browser.new_page(viewport={"width": 1280, "height": 900})
 
