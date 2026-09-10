@@ -8,6 +8,7 @@ import re
 import secrets
 import time
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import HTTPException
@@ -1113,44 +1114,360 @@ async def _baseline(run: dict) -> None:
                                            "eligible": run["baseline"]["eligible"], "error": result["error"]})
 
 
-def reports(proof_type: str | None = None, application: str | None = None, limit: int = 200, optimization_target: str | None = None) -> dict:
-    rows = [run["proof"] for run in store.history(limit) if run.get("proof")]
-    if application:
-        rows = [row for row in rows if row["dimensions"]["application"] == application]
-    if optimization_target:
-        if optimization_target not in {"current_workflow", "single_prompt", "measured_workflow"}:
-            raise HTTPException(422, "optimizationTarget must be current_workflow, single_prompt, or measured_workflow.")
-        rows = [row for row in rows if row["dimensions"].get("optimizationTarget") == optimization_target]
-    groups = {"measured": {"modelSpendUsd": 0.0, "governedModelSpendUsd": 0.0, "baselineModelSpendUsd": 0.0,
-                            "verifiedSavingsUsd": 0.0, "runCount": 0, "contextMinimizationRate": 0.0, "measuredCachedTokenRate": 0.0, "measuredInputTokenReduction": 0.0, "costPerAcceptedOutcomeUsd": 0.0, "qualityPassRate": 0.0, "escalationRate": 0.0},
-              "sample": {"modelSpendUsd": 0.0, "governedModelSpendUsd": 0.0, "baselineModelSpendUsd": 0.0,
-                         "verifiedSavingsUsd": 0.0, "runCount": 0, "contextMinimizationRate": 0.0, "measuredCachedTokenRate": 0.0, "measuredInputTokenReduction": 0.0, "costPerAcceptedOutcomeUsd": 0.0, "qualityPassRate": 0.0, "escalationRate": 0.0},
-              "projected": {"valueUsd": 0.0, "projectionCount": 0, "byPeriodAndSource": {}}}
+_REPORT_RATE_KEYS = (
+    "contextMinimizationRate",
+    "measuredCachedTokenRate",
+    "measuredInputTokenReduction",
+    "qualityPassRate",
+    "escalationRate",
+    "localOperationRate",
+)
+_REPORT_COUNTER_KEYS = (
+    "acceptedOutcomes",
+    "modelCalls",
+    "localOperations",
+    "reuseOperations",
+    "efficientCalls",
+    "advancedCalls",
+    "modelCallsAvoided",
+)
+_REPORT_TARGETS = {"current_workflow", "single_prompt", "measured_workflow"}
+_REPORT_BUCKETS = {"day", "week"}
+
+
+def _report_datetime(value: str, parameter: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError) as error:
+        raise HTTPException(422, f"{parameter} must be a timezone-qualified ISO 8601 datetime.") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise HTTPException(422, f"{parameter} must be a timezone-qualified ISO 8601 datetime.")
+    return parsed.astimezone(timezone.utc)
+
+
+def _stored_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _report_row(run: dict) -> dict:
+    proof = copy.deepcopy(run["proof"])
+    proof["runId"] = run["runId"]
+    proof["createdAt"] = run.get("createdAt") or proof.get("createdAt")
+    return proof
+
+
+def _empty_rate() -> dict:
+    return {"sum": 0.0, "count": 0, "mean": None}
+
+
+def _empty_aggregate() -> dict:
+    return {
+        "runCount": 0,
+        "modelSpendUsd": 0.0,
+        "governedModelSpendUsd": 0.0,
+        "baselineModelSpendUsd": 0.0,
+        "verifiedSavingsUsd": 0.0,
+        "acceptedOutcomes": 0,
+        "modelCalls": 0,
+        "localOperations": 0,
+        "reuseOperations": 0,
+        "efficientCalls": 0,
+        "advancedCalls": 0,
+        "modelCallsAvoided": 0,
+        "costPerAcceptedOutcomeUsd": None,
+        "rates": {key: _empty_rate() for key in _REPORT_RATE_KEYS},
+    }
+
+
+def _empty_projected() -> dict:
+    return {"valueUsd": 0.0, "projectionCount": 0, "byPeriodAndSource": {}}
+
+
+def _empty_groups() -> dict:
+    return {"measured": _empty_aggregate(), "sample": _empty_aggregate(), "projected": _empty_projected()}
+
+
+def _is_real_number(value: object) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float))
+
+
+def _number(value: object) -> float | None:
+    return float(value) if _is_real_number(value) else None
+
+
+def _counter_value(row: dict, key: str) -> float | None:
+    cost = row.get("cost", {})
+    metrics = row.get("metrics", {})
+    value = cost.get(key)
+    if not _is_real_number(value):
+        value = metrics.get(key)
+    return float(value) if _is_real_number(value) else None
+
+
+def _finalize_aggregate(group: dict) -> None:
+    group["costPerAcceptedOutcomeUsd"] = (
+        group["governedModelSpendUsd"] / group["acceptedOutcomes"] if group["acceptedOutcomes"] else None
+    )
+    for rate in group["rates"].values():
+        rate["mean"] = rate["sum"] / rate["count"] if rate["count"] else None
+
+
+def _aggregate_groups(rows: list[dict]) -> dict:
+    groups = _empty_groups()
     for row in rows:
-        category = row["dimensions"]["proofType"]
+        category = row.get("dimensions", {}).get("proofType")
+        if category not in {"measured", "sample"}:
+            continue
         group = groups[category]
         group["runCount"] += 1
-        if row["cost"].get("modelSpendUsd") is not None:
-            group["modelSpendUsd"] += row["cost"]["modelSpendUsd"]
-            group["governedModelSpendUsd"] += row["cost"]["modelSpendUsd"]
-        baseline_cost = row["baseline"].get("baselineModelSpendUsd")
+        cost = row.get("cost", {})
+        governed = _number(cost.get("modelSpendUsd"))
+        if governed is not None:
+            group["modelSpendUsd"] += governed
+            group["governedModelSpendUsd"] += governed
+        baseline = row.get("baseline", {})
+        baseline_cost = _number(baseline.get("baselineModelSpendUsd"))
         if baseline_cost is not None:
             group["modelSpendUsd"] += baseline_cost
             group["baselineModelSpendUsd"] += baseline_cost
-        if row["baseline"].get("eligible"):
-            group["verifiedSavingsUsd"] += row["baseline"]["verifiedSavingUsd"]
+        saving = _number(baseline.get("verifiedSavingUsd")) if baseline.get("eligible") else None
+        if saving is not None:
+            group["verifiedSavingsUsd"] += saving
+        for key in _REPORT_COUNTER_KEYS:
+            value = _counter_value(row, key)
+            if value is not None:
+                group[key] += int(value)
         metrics = row.get("metrics", {})
-        for key in ("contextMinimizationRate", "measuredCachedTokenRate", "measuredInputTokenReduction", "costPerAcceptedOutcomeUsd", "qualityPassRate", "escalationRate"):
+        for key in _REPORT_RATE_KEYS:
             value = metrics.get(key)
-            if isinstance(value, (int, float)):
-                group[key] += float(value)
-        projection = row["cost"].get("projection")
-        if projection:
-            groups["projected"]["valueUsd"] += projection["valueUsd"]
+            if _is_real_number(value):
+                group["rates"][key]["sum"] += float(value)
+                group["rates"][key]["count"] += 1
+        projection = cost.get("projection")
+        if projection and _is_real_number(projection.get("valueUsd")):
+            groups["projected"]["valueUsd"] += float(projection["valueUsd"])
             groups["projected"]["projectionCount"] += 1
-            key = f"{category}:{projection['period']}"
-            groups["projected"]["byPeriodAndSource"][key] = groups["projected"]["byPeriodAndSource"].get(key, 0.0) + projection["valueUsd"]
+            period = projection.get("period", "unknown")
+            key = f"{category}:{period}"
+            groups["projected"]["byPeriodAndSource"][key] = (
+                groups["projected"]["byPeriodAndSource"].get(key, 0.0) + float(projection["valueUsd"])
+            )
+    _finalize_aggregate(groups["measured"])
+    _finalize_aggregate(groups["sample"])
+    return groups
+
+
+def _bucket_start(value: datetime, bucket: str) -> datetime:
+    value = value.astimezone(timezone.utc)
+    day = value.replace(hour=0, minute=0, second=0, microsecond=0)
+    if bucket == "week":
+        return day - timedelta(days=day.weekday())
+    return day
+
+
+def _next_bucket(value: datetime, bucket: str) -> datetime:
+    return value + timedelta(days=7 if bucket == "week" else 1)
+
+
+def _series(rows: list[dict], bucket: str, start: datetime | None, end: datetime | None) -> list[dict]:
+    if not rows:
+        return []
+    created = [_stored_datetime(row["createdAt"]) for row in rows]
+    cursor = _bucket_start(start or min(created), bucket)
+    terminal = end or _next_bucket(_bucket_start(max(created), bucket), bucket)
+    series = []
+    while cursor < terminal:
+        next_cursor = _next_bucket(cursor, bucket)
+        bucket_rows = [row for row in rows if cursor <= _stored_datetime(row["createdAt"]) < next_cursor]
+        item = {"bucket": cursor.date().isoformat(), **_aggregate_groups(bucket_rows)}
+        series.append(item)
+        cursor = next_cursor
+    return series
+
+
+def _route_tiers(rows: list[dict]) -> list[dict]:
+    counters = _aggregate_groups(rows)["measured"]
+    counters_sample = _aggregate_groups(rows)["sample"]
+    operations = {
+        "local": counters["localOperations"] + counters_sample["localOperations"],
+        "reuse": counters["reuseOperations"] + counters_sample["reuseOperations"],
+    }
+    calls = {
+        "efficient": counters["efficientCalls"] + counters_sample["efficientCalls"],
+        "advanced": counters["advancedCalls"] + counters_sample["advancedCalls"],
+    }
+    spend = {"efficient": 0.0, "advanced": 0.0}
+    measured_spend = {"efficient": False, "advanced": False}
+    for row in rows:
+        for usage in row.get("modelUsage", []):
+            tier = {"tokenos-efficient": "efficient", "tokenos-advanced": "advanced"}.get(usage.get("deploymentAlias"))
+            if tier and isinstance(usage.get("costUsdExact"), str):
+                spend[tier] += float(Decimal(usage["costUsdExact"]))
+                measured_spend[tier] = True
+            elif tier and _is_real_number(usage.get("costUsd")):
+                spend[tier] += float(usage["costUsd"])
+                measured_spend[tier] = True
+    return [
+        {"tier": "local", "label": "Handled locally", "operations": operations["local"], "calls": 0, "spendUsd": 0.0},
+        {"tier": "reuse", "label": "Served from reuse", "operations": operations["reuse"], "calls": 0, "spendUsd": 0.0},
+        {"tier": "efficient", "label": "Efficient model", "operations": 0, "calls": calls["efficient"],
+         "spendUsd": spend["efficient"] if measured_spend["efficient"] or calls["efficient"] == 0 else None},
+        {"tier": "advanced", "label": "Advanced model", "operations": 0, "calls": calls["advanced"],
+         "spendUsd": spend["advanced"] if measured_spend["advanced"] or calls["advanced"] == 0 else None},
+    ]
+
+
+def _event_message(event: dict, output_type: str) -> str:
+    if event.get("message"):
+        return str(event["message"])
+    if output_type == "cost.authorized":
+        ceiling = event.get("maximumModelSpendUsd")
+        return f"Authorized ceiling ${ceiling}" if ceiling is not None else "Model cost authorized"
+    if output_type == "baseline.completed":
+        return str(event.get("label") or "Baseline completed")
+    if output_type == "route.selected":
+        return "Advanced tier selected"
+    if output_type == "quality.result":
+        return "Quality gate failed"
+    if output_type == "run.blocked":
+        return str(event.get("detail") or "Run blocked")
+    if output_type == "run.failed":
+        error = event.get("error") or {}
+        return str(error.get("message") or "Run failed")
+    return output_type
+
+
+def _report_events(rows: list[dict]) -> list[dict]:
+    severities = {"cost.authorized": "info", "baseline.completed": "info", "route.selected": "warning",
+                  "quality.result": "risk", "run.blocked": "risk", "run.failed": "risk"}
+    result = []
+    run_ids = {row["runId"] for row in rows}
+    for run_id in run_ids:
+        for event in store.events(run_id):
+            output_type = event.get("type")
+            if output_type == "model.authorized":
+                output_type = "cost.authorized"
+            elif output_type == "operation.completed" and event.get("route") == "tokenos-advanced":
+                output_type = "route.selected"
+            elif output_type == "quality.result" and event.get("passed") is not False:
+                continue
+            if output_type not in severities:
+                continue
+            result.append({"runId": run_id, "at": event.get("at"), "type": output_type,
+                           "severity": severities[output_type],
+                           "message": _event_message(event, output_type)})
+    return sorted(result, key=lambda item: item.get("at") or "", reverse=True)[:50]
+
+
+def _opportunities(rows: list[dict]) -> list[dict]:
+    measured = [row for row in rows if row.get("dimensions", {}).get("proofType") == "measured"]
+    if not measured:
+        return []
+    groups = _aggregate_groups(measured)
+    aggregate = groups["measured"]
+    rates = aggregate["rates"]
+    opportunities = []
+    eligible = [row for row in measured if row.get("metrics", {}).get("cacheEligibility") in {True, "eligible", "candidate"}]
+    cached = rates["measuredCachedTokenRate"]["mean"]
+    if eligible and cached is not None and cached < 0.25:
+        eligibility_rate = len(eligible) / len(measured)
+        gap = eligibility_rate - cached
+        opportunities.append({
+            "id": "cache-gap",
+            "title": "Reuse is eligible but not being used",
+            "impact": "high" if gap > 0.5 else "medium",
+            "tier": "estimated",
+            "evidence": f"Cache eligibility measured at {eligibility_rate:.0%}, actual cached-token rate {cached:.0%}.",
+            "derivedFrom": ["metrics.cacheEligibility", "metrics.measuredCachedTokenRate"],
+            "estimatedSavingUsd": None,
+        })
+    quality = rates["qualityPassRate"]["mean"]
+    if aggregate["advancedCalls"] > 0 and quality is not None and quality >= 0.9:
+        tier_spend = {item["tier"]: item["spendUsd"] for item in _route_tiers(measured)}
+        advanced_spend = tier_spend.get("advanced")
+        efficient_spend = tier_spend.get("efficient")
+        total_spend = (advanced_spend + efficient_spend
+                       if advanced_spend is not None and efficient_spend is not None else None)
+        share = advanced_spend / total_spend if total_spend else 0.0
+        opportunities.append({
+            "id": "advanced-tier-share",
+            "title": "Advanced tier may be overused",
+            "impact": "high" if share > 0.5 else "medium",
+            "tier": "estimated",
+            "evidence": f"{aggregate['advancedCalls']} advanced calls with quality pass rate {quality:.0%}.",
+            "derivedFrom": ["cost.advancedCalls", "metrics.qualityPassRate"],
+            "estimatedSavingUsd": None,
+        })
+    context = rates["contextMinimizationRate"]["mean"]
+    if context is not None and context < 0.3 and aggregate["runCount"] >= 3:
+        opportunities.append({
+            "id": "context-headroom",
+            "title": "More context can be minimized",
+            "impact": "low",
+            "tier": "estimated",
+            "evidence": f"Context minimization averaged {context:.0%} across {aggregate['runCount']} measured runs.",
+            "derivedFrom": ["metrics.contextMinimizationRate", "runCount"],
+            "estimatedSavingUsd": None,
+        })
+    return opportunities
+
+
+def reports(proof_type: str | None = None, application: str | None = None, limit: int = 200,
+            optimization_target: str | None = None, from_: str | None = None, to: str | None = None,
+            bucket: str = "day") -> dict:
+    if proof_type is not None and proof_type not in {"measured", "projected", "sample"}:
+        raise HTTPException(422, "proofType must be measured, projected, or sample.")
+    if optimization_target:
+        if optimization_target not in _REPORT_TARGETS:
+            raise HTTPException(422, "optimizationTarget must be current_workflow, single_prompt, or measured_workflow.")
+    if bucket not in _REPORT_BUCKETS:
+        raise HTTPException(422, "bucket must be day or week.")
+    start = _report_datetime(from_, "from") if from_ is not None else None
+    end = _report_datetime(to, "to") if to is not None else None
+    if start and end and start >= end:
+        raise HTTPException(422, "from must be before to.")
+    limit = max(1, min(limit, 1000))
+    rows = [_report_row(run) for run in store.history(1000) if run.get("proof")]
+    if application:
+        rows = [row for row in rows if row.get("dimensions", {}).get("application") == application]
+    if optimization_target:
+        rows = [row for row in rows if row.get("dimensions", {}).get("optimizationTarget") == optimization_target]
+
+    def in_window(row: dict, lower: datetime | None, upper: datetime | None) -> bool:
+        created = _stored_datetime(row["createdAt"])
+        return (lower is None or created >= lower) and (upper is None or created < upper)
+
+    ranged_rows = [row for row in rows if in_window(row, start, end)]
+    groups = _aggregate_groups(ranged_rows)
+    previous = None
+    if start is not None or end is not None:
+        previous_start, previous_end = start, end
+        if previous_start is None:
+            previous_start = min((_stored_datetime(row["createdAt"]) for row in ranged_rows), default=None)
+        if previous_end is None:
+            previous_end = datetime.now(timezone.utc)
+        if previous_start is not None and previous_start < previous_end:
+            length = previous_end - previous_start
+            previous = _aggregate_groups([row for row in rows if in_window(row, previous_start - length, previous_start)])
+        else:
+            previous = _empty_groups()
+    run_rows = ranged_rows
     if proof_type:
-        rows = [row for row in rows if (row["cost"].get("projection") is not None if proof_type == "projected"
-                                        else row["dimensions"]["proofType"] == proof_type)]
-    return {"groups": groups, "runs": rows}
+        run_rows = [row for row in run_rows if (row.get("cost", {}).get("projection") is not None if proof_type == "projected"
+                                                else row.get("dimensions", {}).get("proofType") == proof_type)]
+    price_versions = sorted({row.get("dimensions", {}).get("priceTableVersion") for row in ranged_rows
+                             if row.get("dimensions", {}).get("priceTableVersion")})
+    return {
+        "range": {"from": start.isoformat() if start else None, "to": end.isoformat() if end else None, "bucket": bucket},
+        "priceTableVersions": price_versions,
+        "groups": groups,
+        "previous": previous,
+        "series": _series(ranged_rows, bucket, start, end),
+        "routeTiers": _route_tiers(ranged_rows),
+        "events": _report_events(ranged_rows),
+        "opportunities": _opportunities(ranged_rows),
+        "runs": run_rows[:limit],
+    }

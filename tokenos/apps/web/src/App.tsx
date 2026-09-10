@@ -10,6 +10,7 @@ import { ProtectPhase } from "./phases/ProtectPhase";
 import { RunPhase } from "./phases/RunPhase";
 import { VerifyPhase } from "./phases/VerifyPhase";
 import { ProvePhase } from "./phases/ProvePhase";
+import { ReportsScreen } from "./components/reports/ReportsScreen";
 import { RunProvider } from "./state/RunProvider";
 import { useRun } from "./state/runContext";
 import { ACTIVE_OPTIMIZATION_KEY, OptimizationJourney } from "./optimization/OptimizationJourney";
@@ -56,9 +57,21 @@ function Shell() {
   const [initialWorkflowId, setInitialWorkflowId] = useState("");
   const [journeyKey, setJourneyKey] = useState(0);
   const [historyError, setHistoryError] = useState("");
+  const [destination, setDestination] = useState<"workflow" | "reports">("workflow");
   const startNew = () => {
     try { sessionStorage.removeItem(ACTIVE_OPTIMIZATION_KEY); } catch { /* Optional persistence. */ }
     reset(); setOptimizationRunId(undefined); setOptimizationMode(false); setJourneyKey((key) => key + 1);
+  };
+  const openRun = (id: string, workflowId?: string) => {
+    setDestination("workflow");
+    setHistoryError("");
+    if (!workflowId || workflowId === "workflow_optimization") {
+      setFoundryModalOpen(false); setOptimizationRunId(id); setOptimizationMode(true);
+      setJourneyKey((key) => key + 1);
+    } else {
+      startNew();
+      void loadRun(id).catch((error: unknown) => setHistoryError(error instanceof Error ? error.message : "Could not open the proof."));
+    }
   };
 
   return (
@@ -68,8 +81,29 @@ function Shell() {
         onOpenFoundryConfig={() => setFoundryModalOpen(true)}
         onNewRun={startNew}
       />
+      <nav className="top-nav" aria-label="Primary">
+        <button
+          type="button"
+          className="nav-item"
+          data-testid="workflow-nav"
+          aria-current={destination === "workflow" ? "page" : undefined}
+          onClick={() => setDestination("workflow")}
+        >
+          Workflow
+        </button>
+        <span aria-hidden="true">|</span>
+        <button
+          type="button"
+          className="nav-item"
+          data-testid="reports-nav"
+          aria-current={destination === "reports" ? "page" : undefined}
+          onClick={() => setDestination("reports")}
+        >
+          Reports
+        </button>
+      </nav>
       {historyError && <p role="alert" className="error-text">{historyError}</p>}
-      {optimizationMode ? <OptimizationJourney key={journeyKey} initialRunId={optimizationRunId}
+      {destination === "reports" ? <ReportsScreen onOpenRun={openRun} /> : optimizationMode ? <OptimizationJourney key={journeyKey} initialRunId={optimizationRunId}
         onSelectWorkflow={(id) => { startNew(); setInitialWorkflowId(id); }} /> : <>
         <PhaseStepper />
         <Announcer />
@@ -79,13 +113,7 @@ function Shell() {
       </>}
       {historyOpen ? <HistoryDrawer onClose={() => setHistoryOpen(false)} onOpenRun={(id, workflowId) => {
         setHistoryOpen(false); setHistoryError("");
-        if (workflowId === "workflow_optimization") {
-          setFoundryModalOpen(false); setOptimizationRunId(id); setOptimizationMode(true);
-          setJourneyKey((key) => key + 1);
-        } else {
-          startNew();
-          void loadRun(id).catch((error: unknown) => setHistoryError(error instanceof Error ? error.message : "Could not open the proof."));
-        }
+        openRun(id, workflowId);
       }} /> : null}
       {/* Mounted in every mode so the header's Foundry Config button always works. */}
       <FoundryConfigModal

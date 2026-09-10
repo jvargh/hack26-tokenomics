@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import zipfile
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ..config import settings
 from . import engine, imports
@@ -123,10 +125,61 @@ async def execute(run_id: str) -> dict:
 
 
 @router.get("/optimization/reports")
-async def reports(proofType: str | None = None, application: str | None = None, optimizationTarget: str | None = None, limit: int = 200) -> dict:
+async def reports(proofType: str | None = None, application: str | None = None,
+                  optimizationTarget: str | None = None, limit: int = 200,
+                  from_: str | None = Query(default=None, alias="from"),
+                  to: str | None = None, bucket: str = "day") -> dict:
     if proofType is not None and proofType not in {"measured", "projected", "sample"}:
         raise HTTPException(422, "proofType must be measured, projected, or sample.")
-    return engine.reports(proofType, application, limit, optimizationTarget)
+    return engine.reports(proofType, application, limit, optimizationTarget, from_, to, bucket)
+
+
+@router.get("/optimization/reports/export")
+async def reports_export(proofType: str | None = None, application: str | None = None,
+                         optimizationTarget: str | None = None, limit: int = 200,
+                         from_: str | None = Query(default=None, alias="from"),
+                         to: str | None = None, bucket: str = "day", format: str = "json"):
+    if format not in {"json", "csv"}:
+        raise HTTPException(422, "format must be json or csv.")
+    report = engine.reports(proofType, application, limit, optimizationTarget, from_, to, bucket)
+    headers = {"Content-Disposition": f'attachment; filename="optimization-reports.{format}"'}
+    if format == "json":
+        return JSONResponse(report, headers=headers)
+    output = io.StringIO(newline="")
+    columns = [
+        "runId", "createdAt", "application", "environment", "optimizationTarget", "proofType",
+        "priceTableVersion", "governedModelSpendUsd", "baselineModelSpendUsd", "verifiedSavingUsd",
+        "acceptedOutcomes", "costPerAcceptedOutcomeUsd", "modelCalls", "localOperations",
+        "reuseOperations", "qualityPassRate", "escalationRate",
+    ]
+    writer = csv.DictWriter(output, fieldnames=columns)
+    writer.writeheader()
+    for run in report["runs"]:
+        dimensions = run.get("dimensions", {})
+        cost = run.get("cost", {})
+        baseline = run.get("baseline", {})
+        metrics = run.get("metrics", {})
+        row = {
+            "runId": run.get("runId"),
+            "createdAt": run.get("createdAt"),
+            "application": dimensions.get("application"),
+            "environment": dimensions.get("environment"),
+            "optimizationTarget": dimensions.get("optimizationTarget"),
+            "proofType": dimensions.get("proofType"),
+            "priceTableVersion": dimensions.get("priceTableVersion"),
+            "governedModelSpendUsd": cost.get("modelSpendUsd"),
+            "baselineModelSpendUsd": baseline.get("baselineModelSpendUsd"),
+            "verifiedSavingUsd": baseline.get("verifiedSavingUsd"),
+            "acceptedOutcomes": cost.get("acceptedOutcomes"),
+            "costPerAcceptedOutcomeUsd": cost.get("costPerAcceptedOutcomeUsd"),
+            "modelCalls": cost.get("modelCalls"),
+            "localOperations": cost.get("localOperations"),
+            "reuseOperations": cost.get("reuseOperations"),
+            "qualityPassRate": metrics.get("qualityPassRate"),
+            "escalationRate": metrics.get("escalationRate"),
+        }
+        writer.writerow({key: "" if value is None else value for key, value in row.items()})
+    return Response(output.getvalue(), media_type="text/csv", headers=headers)
 
 
 def events(run_id: str, request: Request) -> StreamingResponse:

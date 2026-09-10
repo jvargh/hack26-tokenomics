@@ -21,6 +21,28 @@ export const EVIDENCE_WORD: Record<Exclude<EvidenceTier, "none">, string> = {
   proven: "proven"
 };
 
+export function EvidenceTier({
+  tier,
+  children,
+  className,
+  testId
+}: {
+  tier: EvidenceTier;
+  children?: ReactNode;
+  className?: string;
+  testId?: string;
+}) {
+  const text = children ?? (tier === "none" ? "no measured claim" : EVIDENCE_WORD[tier]);
+  return (
+    <span
+      className={`comparison-chip is-${tier}${className ? ` ${className}` : ""}`}
+      data-testid={testId}
+    >
+      {text}
+    </span>
+  );
+}
+
 /** The headline benefit: how much of the work never needed a model at all. */
 export function WorkAvoidedBanner({
   localOperations,

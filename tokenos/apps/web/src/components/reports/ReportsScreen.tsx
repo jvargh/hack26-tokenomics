@@ -1,0 +1,494 @@
+import { useEffect, useMemo, useState } from "react";
+import { api } from "../../api/client";
+import type {
+  ReportOptimizationTarget,
+  ReportResponse,
+  ReportRun,
+  ReportingQuery
+} from "../../api/types";
+import { KpiCard, Panel } from "./Cards";
+import { ProjectionBars, RouteTierShare, Sparkline, SpendTrendChart } from "./Charts";
+import { reportingFixture } from "./reportingFixture";
+import {
+  MetricValue,
+  TierChip,
+  formatInteger,
+  formatPercent,
+  formatUnitUsd,
+  formatUsd,
+  targetLabel
+} from "./reportValue";
+
+type RangePreset = "last7" | "last30" | "all";
+type ExportFormat = "json" | "csv";
+
+const dayMs = 24 * 60 * 60 * 1000;
+
+function queryFor(range: RangePreset, target: ReportOptimizationTarget | ""): ReportingQuery {
+  const query: ReportingQuery = { bucket: "day", limit: 200 };
+  if (target) query.optimizationTarget = target;
+  if (range !== "all") {
+    const days = range === "last7" ? 7 : 30;
+    const to = new Date();
+    const from = new Date(to.getTime() - days * dayMs);
+    query.from = from.toISOString();
+    query.to = to.toISOString();
+  }
+  return query;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function delta(current: number | null, previous: number | null): string | null {
+  if (current === null || previous === null) return null;
+  if (previous === 0) {
+    if (current === 0) return "No change vs prior";
+    return "New vs prior";
+  }
+  const change = (current - previous) / Math.abs(previous);
+  const marker = change >= 0 ? "▲" : "▼";
+  return `${marker} ${formatPercent(Math.abs(change))} vs prior`;
+}
+
+function fixtureBlob(format: ExportFormat): Blob {
+  if (format === "json") {
+    return new Blob([JSON.stringify(reportingFixture, null, 2)], { type: "application/json" });
+  }
+  const columns = [
+    "runId",
+    "createdAt",
+    "application",
+    "environment",
+    "optimizationTarget",
+    "proofType",
+    "priceTableVersion",
+    "governedModelSpendUsd",
+    "baselineModelSpendUsd",
+    "verifiedSavingUsd",
+    "acceptedOutcomes",
+    "costPerAcceptedOutcomeUsd",
+    "modelCalls",
+    "localOperations",
+    "reuseOperations",
+    "qualityPassRate",
+    "escalationRate"
+  ] as const;
+  const escape = (value: unknown) => {
+    if (value === null || value === undefined) return "";
+    const text = String(value);
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const rows = reportingFixture.runs.map((run) => columns.map((column) => escape(run[column])));
+  const csv = [columns.join(","), ...rows.map((row) => row.join(","))].join("\n");
+  return new Blob([csv], { type: "text/csv" });
+}
+
+function downloadBlob(blob: Blob, format: ExportFormat) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `tokenos-report.${format}`;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function runWorkflow(run: ReportRun): string {
+  return String(run.workflow ?? run.application ?? "Optimization workflow");
+}
+
+function runWorkflowId(run: ReportRun): string | undefined {
+  const workflowId = run.workflowId ?? run.workflow_id;
+  return typeof workflowId === "string" ? workflowId : undefined;
+}
+
+function relativeTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const seconds = Math.round((date.getTime() - Date.now()) / 1000);
+  const abs = Math.abs(seconds);
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  if (abs < 60) return formatter.format(seconds, "second");
+  if (abs < 3600) return formatter.format(Math.round(seconds / 60), "minute");
+  if (abs < 86400) return formatter.format(Math.round(seconds / 3600), "hour");
+  return formatter.format(Math.round(seconds / 86400), "day");
+}
+
+export function ReportsScreen({
+  onOpenRun
+}: {
+  onOpenRun: (runId: string, workflowId?: string) => void;
+}) {
+  const [range, setRange] = useState<RangePreset>("last30");
+  const [target, setTarget] = useState<ReportOptimizationTarget | "">("");
+  const [report, setReport] = useState<ReportResponse | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+
+  const query = useMemo(() => queryFor(range, target), [range, target]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    api
+      .reports(query)
+      .then((response) => {
+        if (!cancelled) setReport(response);
+      })
+      .catch((caught: unknown) => {
+        if (cancelled) return;
+        if (import.meta.env.DEV) {
+          setReport(reportingFixture);
+          setError("Using the local development reporting fixture until the API is available.");
+        } else {
+          setReport(null);
+          setError(caught instanceof Error ? caught.message : "Could not load reports.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [query]);
+
+  const measured = report?.groups.measured;
+  const previous = report?.previous;
+  const runs = report?.runs ?? [];
+  const hasRuns = runs.length > 0;
+  const projectionEntries = useMemo(
+    () => Object.entries(report?.groups.projected.byPeriodAndSource ?? {}),
+    [report]
+  );
+  const priceVersions = report?.priceTableVersions.length ? report.priceTableVersions.join(", ") : "";
+  const priceLabel = priceVersions ? `price table v${priceVersions}` : "price table not reported";
+
+  const handleExport = async (format: ExportFormat) => {
+    setExporting(true);
+    setError("");
+    try {
+      const blob = await api.exportReport(query, format);
+      downloadBlob(blob, format);
+    } catch (caught) {
+      if (import.meta.env.DEV) {
+        downloadBlob(fixtureBlob(format), format);
+        setError("Exported the local development fixture because the API is unavailable.");
+      } else {
+        setError(caught instanceof Error ? caught.message : "Could not export the report.");
+      }
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <main className="reports" data-testid="reports-screen">
+      <section className="hero">
+        <div>
+          <p className="eyebrow">Reports</p>
+          <h1>Evidence-weighted AI spend</h1>
+          <p className="subtitle">
+            Measured governance across selected runs · {priceLabel}
+          </p>
+          {report ? (
+            <div className="summary-strip">
+              <MetricValue value={report.groups.measured.runCount} tier="measured-governed" formatter={formatInteger} subtleTier />
+              <MetricValue value={report.groups.sample.runCount} tier="estimated" formatter={formatInteger} subtleTier />
+              <MetricValue value={report.groups.projected.projectionCount} tier="projected" formatter={formatInteger} subtleTier />
+            </div>
+          ) : null}
+        </div>
+        <div className="toolbar" aria-label="Report controls">
+          <label>
+            <span>Target</span>
+            <select
+              data-testid="report-target"
+              value={target}
+              onChange={(event) => setTarget(event.target.value as ReportOptimizationTarget | "")}
+            >
+              <option value="">All targets</option>
+              <option value="current_workflow">Current workflow</option>
+              <option value="single_prompt">Single prompt</option>
+              <option value="measured_workflow">Measured workflow</option>
+            </select>
+          </label>
+          <label>
+            <span>Date range</span>
+            <select
+              data-testid="report-range"
+              value={range}
+              onChange={(event) => setRange(event.target.value as RangePreset)}
+            >
+              <option value="last7">Last 7 days</option>
+              <option value="last30">Last 30 days</option>
+              <option value="all">All measured time</option>
+            </select>
+          </label>
+          <label>
+            <span>Export</span>
+            <select
+              data-testid="report-export"
+              value=""
+              disabled={exporting}
+              onChange={(event) => {
+                const format = event.target.value as ExportFormat;
+                if (format) void handleExport(format);
+              }}
+            >
+              <option value="">{exporting ? "Exporting…" : "Choose format"}</option>
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      {error ? <p role="alert" className="notice notice-warn">{error}</p> : null}
+      {loading ? <p className="panel">Loading reporting evidence…</p> : null}
+
+      {report && !loading && !hasRuns ? (
+        <section className="panel empty-state" data-testid="reports-empty">
+          <h2>No runs in this range yet</h2>
+          <p>
+            TokenOS will not substitute estimates for missing measurements. Run an optimization
+            workflow or widen the range to see measured spend, quality, and savings.
+          </p>
+        </section>
+      ) : null}
+
+      {report && measured && !loading && hasRuns ? (
+        <>
+          <section className="kpi-grid" aria-label="Key reporting metrics">
+            <KpiCard
+              testId="kpi-verified-saving"
+              label="Verified saving"
+              value={measured.verifiedSavingsUsd}
+              tier={measured.verifiedSavingsUsd > 0 ? "verified-saving" : "neutral"}
+              formatter={formatUsd}
+              delta={previous ? delta(measured.verifiedSavingsUsd, previous.measured.verifiedSavingsUsd) : null}
+              sparkline={report.series.map((bucket) => bucket.measured.verifiedSavingsUsd)}
+              tone={measured.verifiedSavingsUsd > 0 ? "good" : "muted"}
+            />
+            <KpiCard
+              testId="kpi-governed-spend"
+              label="Governed spend"
+              value={measured.governedModelSpendUsd}
+              tier="measured-governed"
+              formatter={formatUsd}
+              delta={previous ? delta(measured.governedModelSpendUsd, previous.measured.governedModelSpendUsd) : null}
+              sparkline={report.series.map((bucket) => bucket.measured.governedModelSpendUsd)}
+              tone="brand"
+            />
+            <KpiCard
+              testId="kpi-cost-per-outcome"
+              label="Cost per accepted outcome"
+              value={measured.costPerAcceptedOutcomeUsd}
+              tier="measured-governed"
+              formatter={formatUnitUsd}
+              delta={previous ? delta(measured.costPerAcceptedOutcomeUsd, previous.measured.costPerAcceptedOutcomeUsd) : null}
+              sparkline={report.series.map((bucket) => bucket.measured.costPerAcceptedOutcomeUsd)}
+              tone="brand"
+            />
+            <KpiCard
+              testId="kpi-calls-avoided"
+              label="Model calls avoided"
+              value={measured.modelCallsAvoided}
+              tier="measured-governed"
+              formatter={formatInteger}
+              delta={previous ? delta(measured.modelCallsAvoided, previous.measured.modelCallsAvoided) : null}
+              sparkline={report.series.map((bucket) => bucket.measured.modelCallsAvoided)}
+              tone="brand"
+            />
+            <KpiCard
+              testId="kpi-quality-pass"
+              label="Quality pass rate"
+              value={measured.rates.qualityPassRate.mean}
+              tier="measured-governed"
+              formatter={formatPercent}
+              delta={previous ? delta(measured.rates.qualityPassRate.mean, previous.measured.rates.qualityPassRate.mean) : null}
+              sparkline={report.series.map((bucket) => bucket.measured.rates.qualityPassRate.mean)}
+              tone="good"
+            />
+            <KpiCard
+              testId="kpi-projected"
+              label="Projected at volume"
+              value={report.groups.projected.valueUsd}
+              tier="projected"
+              formatter={formatUsd}
+              delta={previous ? delta(report.groups.projected.valueUsd, previous.projected.valueUsd) : null}
+              sparkline={report.series.map((bucket) => bucket.projected.valueUsd)}
+              tone="warn"
+              note="Only when recurring volume was supplied."
+            />
+          </section>
+
+          <section className="panel-grid" aria-label="Reporting panels">
+            <Panel
+              title="Governed vs baseline spend"
+              eyebrow="Measured over time"
+              testId="panel-spend-trend"
+            >
+              <SpendTrendChart series={report.series} />
+            </Panel>
+
+            <Panel
+              title="Where the work went"
+              eyebrow="Route-tier distribution"
+              testId="panel-route-tiers"
+            >
+              <RouteTierShare tiers={report.routeTiers} />
+              <p className="panel-foot">{priceLabel}</p>
+            </Panel>
+
+            <Panel
+              title="Projection at volume"
+              eyebrow="Projected, not measured"
+              testId="panel-projection"
+              projected
+            >
+              <div className="projection-total">
+                <MetricValue value={report.groups.projected.valueUsd} tier="projected" formatter={formatUsd} />
+              </div>
+              <ProjectionBars entries={projectionEntries} />
+            </Panel>
+
+            <Panel title="Recent runs" eyebrow={targetLabel(target)} testId="panel-recent-runs">
+              <div className="table-wrap">
+                <table>
+                  <caption>Each row is a server-reported proof object from the report endpoint.</caption>
+                  <thead>
+                    <tr>
+                      <th>Run ID</th>
+                      <th>Workflow</th>
+                      <th>Target</th>
+                      <th>Proof</th>
+                      <th className="numeric">Governed spend</th>
+                      <th className="numeric">Cost per outcome</th>
+                      <th className="numeric">Quality</th>
+                      <th className="numeric">Verified saving</th>
+                      <th>Sparkline</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {runs.map((run) => {
+                      const saving = numberOrNull(run.verifiedSavingUsd);
+                      return (
+                        <tr
+                          key={run.runId}
+                          className="click-row"
+                          tabIndex={0}
+                          role="button"
+                          onClick={() => onOpenRun(run.runId, runWorkflowId(run))}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              onOpenRun(run.runId, runWorkflowId(run));
+                            }
+                          }}
+                        >
+                          <td>{run.runId}</td>
+                          <td>{runWorkflow(run)}</td>
+                          <td>{targetLabel(run.optimizationTarget)}</td>
+                          <td>{run.proofType ?? "measured"}</td>
+                          <td className="numeric">
+                            <MetricValue value={numberOrNull(run.governedModelSpendUsd)} tier="measured-governed" formatter={formatUsd} subtleTier />
+                          </td>
+                          <td className="numeric">
+                            <MetricValue value={numberOrNull(run.costPerAcceptedOutcomeUsd)} tier="measured-governed" formatter={formatUnitUsd} subtleTier />
+                          </td>
+                          <td className="numeric">
+                            <MetricValue value={numberOrNull(run.qualityPassRate)} tier="measured-governed" formatter={formatPercent} subtleTier />
+                          </td>
+                          <td className="numeric">
+                            <MetricValue
+                              value={saving}
+                              tier={saving !== null && saving > 0 ? "verified-saving" : "neutral"}
+                              formatter={formatUsd}
+                              subtleTier
+                            />
+                          </td>
+                          <td>
+                            <Sparkline
+                              title={`Spend evidence for ${run.runId}`}
+                              values={[
+                                numberOrNull(run.governedModelSpendUsd),
+                                numberOrNull(run.baselineModelSpendUsd),
+                                saving
+                              ]}
+                              tone={saving !== null && saving > 0 ? "good" : "muted"}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+
+            <Panel title="Governance events" eyebrow="Newest first" testId="panel-events">
+              {report.events.length ? (
+                <ol className="event-list">
+                  {report.events.map((event) => (
+                    <li className={`event is-${event.severity}`} key={`${event.runId}-${event.at}-${event.type}`}>
+                      <span className="event-icon" aria-hidden="true">
+                        {event.severity === "risk" ? "!" : event.severity === "warning" ? "△" : "i"}
+                      </span>
+                      <div>
+                        <strong>{event.message}</strong>
+                        <span>{event.type} · {relativeTime(event.at)} · {event.runId}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="empty-copy">No governance events in this range.</p>
+              )}
+            </Panel>
+          </section>
+
+          <section className="opportunities" aria-labelledby="opportunity-heading">
+            <div className="section-head">
+              <p className="eyebrow">Opportunities</p>
+              <h2 id="opportunity-heading">Measured evidence, estimated opportunity</h2>
+            </div>
+            {report.opportunities.length ? (
+              <div className="opportunity-grid">
+                {report.opportunities.map((opportunity) => (
+                  <article className="opportunity-card" data-testid="opportunity-card" key={opportunity.id}>
+                    <div className="opportunity-head">
+                      <span className={`impact is-${opportunity.impact}`}>{opportunity.impact}</span>
+                      <TierChip tier="estimated" />
+                    </div>
+                    <h3>{opportunity.title}</h3>
+                    <p>{opportunity.evidence}</p>
+                    <MetricValue
+                      value={opportunity.estimatedSavingUsd}
+                      tier="estimated"
+                      formatter={formatUsd}
+                    />
+                    <small>Derived from {opportunity.derivedFrom.join(", ")}</small>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="panel empty-state">
+                <h3>No estimated opportunities yet</h3>
+                <p>
+                  The API only emits opportunities when measured runs support a derivation. There is
+                  nothing honest to recommend for this range.
+                </p>
+              </div>
+            )}
+          </section>
+        </>
+      ) : null}
+    </main>
+  );
+}

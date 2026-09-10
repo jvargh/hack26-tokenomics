@@ -15,6 +15,8 @@ import {
   type HealthResponse,
   type PlanResponse,
   type Proof,
+  type ReportResponse,
+  type ReportingQuery,
   type RunState,
   type ServerEvent,
   type UploadRecord,
@@ -55,6 +57,49 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, init);
+  } catch {
+    const endpoint = API_BASE || window.location.origin;
+    throw new ApiError(`The TokenOS API at ${endpoint} could not be reached.`, 0);
+  }
+
+  if (!response.ok) {
+    let message = `${response.status} ${response.statusText}`;
+    let fieldErrors: FieldError[] = [];
+    try {
+      const body = await response.json();
+      const detail = body?.detail;
+      if (typeof detail === "string") {
+        message = detail;
+      } else if (detail && Array.isArray(detail.errors)) {
+        fieldErrors = detail.errors as FieldError[];
+        message = fieldErrors.map((item) => item.message).join(" ");
+      } else if (Array.isArray(detail)) {
+        message = detail.map((item: { msg?: string }) => item.msg ?? "Invalid input").join(" ");
+      }
+    } catch {
+      /* keep the status text */
+    }
+    throw new ApiError(message, response.status, fieldErrors);
+  }
+
+  return response.blob();
+}
+
+function reportingQuery(params: ReportingQuery & { format?: "json" | "csv" } = {}): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") {
+      query.set(key, String(value));
+    }
+  }
+  const text = query.toString();
+  return text ? `?${text}` : "";
 }
 
 export const api = {
@@ -155,6 +200,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ deployment_type: deploymentType })
     }),
+
+  reports: (params: ReportingQuery = {}) =>
+    request<ReportResponse>(`/api/optimization/reports${reportingQuery(params)}`),
+
+  exportReport: (params: ReportingQuery = {}, format: "json" | "csv" = "json") =>
+    requestBlob(`/api/optimization/reports/export${reportingQuery({ ...params, format })}`),
 
   history: () =>
     request<{

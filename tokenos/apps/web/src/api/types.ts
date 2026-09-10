@@ -445,6 +445,141 @@ export interface ServerEvent {
   [key: string]: unknown;
 }
 
+export type ReportProofType = "measured" | "sample" | "projected";
+export type ReportOptimizationTarget =
+  | "current_workflow"
+  | "single_prompt"
+  | "measured_workflow";
+export type ReportBucket = "day" | "week";
+
+export interface ReportingQuery {
+  proofType?: ReportProofType;
+  application?: string;
+  optimizationTarget?: ReportOptimizationTarget;
+  limit?: number;
+  from?: string;
+  to?: string;
+  bucket?: ReportBucket;
+}
+
+export interface ReportRange {
+  from: string;
+  to: string;
+  bucket: ReportBucket;
+}
+
+export interface ReportRate {
+  sum: number;
+  count: number;
+  mean: number | null;
+}
+
+export interface ReportRates {
+  contextMinimizationRate: ReportRate;
+  measuredCachedTokenRate: ReportRate;
+  measuredInputTokenReduction: ReportRate;
+  qualityPassRate: ReportRate;
+  escalationRate: ReportRate;
+  localOperationRate: ReportRate;
+}
+
+export interface ReportAggregate {
+  runCount: number;
+  modelSpendUsd: number;
+  governedModelSpendUsd: number;
+  baselineModelSpendUsd: number;
+  verifiedSavingsUsd: number;
+  acceptedOutcomes: number;
+  modelCalls: number;
+  localOperations: number;
+  reuseOperations: number;
+  efficientCalls: number;
+  advancedCalls: number;
+  modelCallsAvoided: number;
+  costPerAcceptedOutcomeUsd: number | null;
+  rates: ReportRates;
+}
+
+export interface ReportProjection {
+  valueUsd: number;
+  projectionCount: number;
+  byPeriodAndSource: Record<string, number>;
+}
+
+export interface ReportGroups {
+  measured: ReportAggregate;
+  sample: ReportAggregate;
+  projected: ReportProjection;
+}
+
+export interface ReportSeriesBucket {
+  bucket: string;
+  measured: ReportAggregate;
+  sample: ReportAggregate;
+  projected: ReportProjection;
+}
+
+export interface ReportRouteTier {
+  tier: "local" | "reuse" | "efficient" | "advanced";
+  label: string;
+  operations: number;
+  calls: number;
+  spendUsd: number | null;
+}
+
+export interface ReportEvent {
+  runId: string;
+  at: string;
+  type: string;
+  severity: "info" | "warning" | "risk";
+  message: string;
+}
+
+export interface ReportOpportunity {
+  id: "cache-gap" | "advanced-tier-share" | "context-headroom" | string;
+  title: string;
+  impact: "high" | "medium" | "low";
+  tier: "estimated";
+  evidence: string;
+  derivedFrom: string[];
+  estimatedSavingUsd: number | null;
+}
+
+export interface ReportRun extends Record<string, unknown> {
+  runId: string;
+  createdAt: string;
+  application?: string | null;
+  environment?: string | null;
+  workflowId?: string | null;
+  workflow_id?: string | null;
+  workflow?: string | null;
+  optimizationTarget?: ReportOptimizationTarget | null;
+  proofType?: ReportProofType | null;
+  priceTableVersion?: string | null;
+  governedModelSpendUsd?: number | null;
+  baselineModelSpendUsd?: number | null;
+  verifiedSavingUsd?: number | null;
+  acceptedOutcomes?: number | null;
+  costPerAcceptedOutcomeUsd?: number | null;
+  modelCalls?: number | null;
+  localOperations?: number | null;
+  reuseOperations?: number | null;
+  qualityPassRate?: number | null;
+  escalationRate?: number | null;
+}
+
+export interface ReportResponse {
+  range: ReportRange;
+  priceTableVersions: string[];
+  groups: ReportGroups;
+  previous: ReportGroups | null;
+  series: ReportSeriesBucket[];
+  routeTiers: ReportRouteTier[];
+  events: ReportEvent[];
+  opportunities: ReportOpportunity[];
+  runs: ReportRun[];
+}
+
 export interface FieldError {
   field: string;
   message: string;
