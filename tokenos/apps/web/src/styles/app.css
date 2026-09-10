@@ -2941,6 +2941,16 @@ pre {
   border-color: color-mix(in srgb, var(--tos-brand) 36%, var(--tos-border));
 }
 
+/* A measured figure taken over fixture input. Kept visually distinct from
+   governed production spend, and dashed so it reads as not-representative at a
+   glance rather than only on close reading of the label. */
+.tier.is-measured-sample {
+  color: var(--tos-muted);
+  background: color-mix(in srgb, var(--tos-muted) 10%, transparent);
+  border-color: color-mix(in srgb, var(--tos-muted) 36%, var(--tos-border));
+  border-style: dashed;
+}
+
 .tier.is-projected {
   color: var(--tos-warn);
   background: color-mix(in srgb, var(--tos-warn) 10%, transparent);

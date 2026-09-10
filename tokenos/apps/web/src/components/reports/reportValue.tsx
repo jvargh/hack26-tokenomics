@@ -5,6 +5,7 @@ export type ReportTier =
   | "estimated"
   | "measured-current"
   | "measured-governed"
+  | "measured-sample"
   | "projected"
   | "verified-saving"
   | "neutral";
@@ -13,6 +14,10 @@ const tierText: Record<ReportTier, string> = {
   estimated: "Estimated",
   "measured-current": "Measured — current",
   "measured-governed": "Measured — governed",
+  // The usage behind this figure was genuinely measured, but the input was a
+  // bundled fixture. Saying both stops a reproducible demo run from being read
+  // as production spend.
+  "measured-sample": "Measured — sample run",
   projected: "Projected at volume",
   "verified-saving": "Verified saving",
   neutral: "Verified saving"
@@ -22,6 +27,9 @@ const sharedTier: Record<ReportTier, SharedEvidenceTier> = {
   estimated: "estimate",
   "measured-current": "proven",
   "measured-governed": "proven",
+  // The number is a real measurement, not a guess, so calling it an estimate
+  // would be inaccurate in the other direction. The wording carries the caveat.
+  "measured-sample": "proven",
   projected: "estimate",
   "verified-saving": "proven",
   neutral: "none"

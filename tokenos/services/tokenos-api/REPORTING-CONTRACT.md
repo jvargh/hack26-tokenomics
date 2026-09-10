@@ -192,9 +192,14 @@ Same filters as §1 plus `format`.
 
 - `json` → the complete §1 body, `Content-Disposition: attachment`.
 - `csv` → one row per run. Columns, in order:
-  `runId, createdAt, application, environment, optimizationTarget, proofType, priceTableVersion,
-   governedModelSpendUsd, baselineModelSpendUsd, verifiedSavingUsd, acceptedOutcomes,
-   costPerAcceptedOutcomeUsd, modelCalls, localOperations, reuseOperations, qualityPassRate, escalationRate`
+  `runId, createdAt, source, workflowId, application, environment, optimizationTarget, proofType,
+   priceTableVersion, governedModelSpendUsd, baselineModelSpendUsd, verifiedSavingUsd,
+   acceptedOutcomes, costPerAcceptedOutcomeUsd, modelCalls, localOperations, reuseOperations,
+   qualityPassRate, escalationRate`
+
+`source` is `optimization` or `workflow`. Without it the two run kinds are
+indistinguishable once the file leaves the product, and a fixture run could be
+read as production spend.
 
 CSV values that are `None` render as an empty field, not the string `None`. Any value
 containing a comma, quote or newline is quoted per RFC 4180 — use the `csv` module, not

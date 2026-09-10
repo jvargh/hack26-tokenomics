@@ -128,26 +128,29 @@ async def execute(run_id: str) -> dict:
 async def reports(proofType: str | None = None, application: str | None = None,
                   optimizationTarget: str | None = None, limit: int = 200,
                   from_: str | None = Query(default=None, alias="from"),
-                  to: str | None = None, bucket: str = "day") -> dict:
+                  to: str | None = None, bucket: str = "day",
+                  source: str | None = None) -> dict:
     if proofType is not None and proofType not in {"measured", "projected", "sample"}:
         raise HTTPException(422, "proofType must be measured, projected, or sample.")
-    return engine.reports(proofType, application, limit, optimizationTarget, from_, to, bucket)
+    return engine.reports(proofType, application, limit, optimizationTarget, from_, to, bucket, source)
 
 
 @router.get("/optimization/reports/export")
 async def reports_export(proofType: str | None = None, application: str | None = None,
                          optimizationTarget: str | None = None, limit: int = 200,
                          from_: str | None = Query(default=None, alias="from"),
-                         to: str | None = None, bucket: str = "day", format: str = "json"):
+                         to: str | None = None, bucket: str = "day", format: str = "json",
+                         source: str | None = None):
     if format not in {"json", "csv"}:
         raise HTTPException(422, "format must be json or csv.")
-    report = engine.reports(proofType, application, limit, optimizationTarget, from_, to, bucket)
+    report = engine.reports(proofType, application, limit, optimizationTarget, from_, to, bucket, source)
     headers = {"Content-Disposition": f'attachment; filename="optimization-reports.{format}"'}
     if format == "json":
         return JSONResponse(report, headers=headers)
     output = io.StringIO(newline="")
     columns = [
-        "runId", "createdAt", "application", "environment", "optimizationTarget", "proofType",
+        "runId", "createdAt", "source", "workflowId", "application", "environment",
+        "optimizationTarget", "proofType",
         "priceTableVersion", "governedModelSpendUsd", "baselineModelSpendUsd", "verifiedSavingUsd",
         "acceptedOutcomes", "costPerAcceptedOutcomeUsd", "modelCalls", "localOperations",
         "reuseOperations", "qualityPassRate", "escalationRate",
@@ -159,9 +162,19 @@ async def reports_export(proofType: str | None = None, application: str | None =
         cost = run.get("cost", {})
         baseline = run.get("baseline", {})
         metrics = run.get("metrics", {})
+
+        def counter(key: str):
+            """Counters live on `cost` for optimization runs and on `metrics` for
+            workflow runs. Falling back mirrors the aggregator so an exported row
+            never blanks a value the totals already counted."""
+            value = cost.get(key)
+            return metrics.get(key) if value is None else value
+
         row = {
             "runId": run.get("runId"),
             "createdAt": run.get("createdAt"),
+            "source": dimensions.get("source"),
+            "workflowId": dimensions.get("workflowId"),
             "application": dimensions.get("application"),
             "environment": dimensions.get("environment"),
             "optimizationTarget": dimensions.get("optimizationTarget"),
@@ -170,11 +183,11 @@ async def reports_export(proofType: str | None = None, application: str | None =
             "governedModelSpendUsd": cost.get("modelSpendUsd"),
             "baselineModelSpendUsd": baseline.get("baselineModelSpendUsd"),
             "verifiedSavingUsd": baseline.get("verifiedSavingUsd"),
-            "acceptedOutcomes": cost.get("acceptedOutcomes"),
+            "acceptedOutcomes": counter("acceptedOutcomes"),
             "costPerAcceptedOutcomeUsd": cost.get("costPerAcceptedOutcomeUsd"),
-            "modelCalls": cost.get("modelCalls"),
-            "localOperations": cost.get("localOperations"),
-            "reuseOperations": cost.get("reuseOperations"),
+            "modelCalls": counter("modelCalls"),
+            "localOperations": counter("localOperations"),
+            "reuseOperations": counter("reuseOperations"),
             "qualityPassRate": metrics.get("qualityPassRate"),
             "escalationRate": metrics.get("escalationRate"),
         }

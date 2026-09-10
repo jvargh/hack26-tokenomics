@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from ..config import settings
 from ..modeladapter import ModelUnavailable, get_model_adapter, model_available
 from ..pricing import load_price_table
+from ..storage.ledger import ledger_store
 from . import imports, prompts
 from .fixtures import WORKFLOW_SAMPLE_ANALYSIS_NOTICE, prompt_example, sample_requests
 from .quality import VERIFIER_VERSION, gate_blockers, local_result, verify_output
@@ -1133,6 +1134,7 @@ _REPORT_COUNTER_KEYS = (
 )
 _REPORT_TARGETS = {"current_workflow", "single_prompt", "measured_workflow"}
 _REPORT_BUCKETS = {"day", "week"}
+_REPORT_SOURCES = {"optimization", "workflow"}
 
 
 def _report_datetime(value: str, parameter: str) -> datetime:
@@ -1156,7 +1158,118 @@ def _report_row(run: dict) -> dict:
     proof = copy.deepcopy(run["proof"])
     proof["runId"] = run["runId"]
     proof["createdAt"] = run.get("createdAt") or proof.get("createdAt")
+    dimensions = proof.get("dimensions")
+    if not isinstance(dimensions, dict):
+        dimensions = {}
+        proof["dimensions"] = dimensions
+    dimensions.setdefault("source", "optimization")
     return proof
+
+
+# Uploaded documents are the operator's own input, so a run over them is a real
+# measurement. Sample fixtures and the connector stub are reproducible inputs, so
+# they aggregate as `sample` and can never be read as production spend.
+_WORKFLOW_MEASURED_EVIDENCE = {"upload"}
+
+
+def _workflow_baseline(record: dict) -> dict:
+    """Maps a stored baseline comparison onto the reporting baseline shape.
+
+    A saving is surfaced only when the ledger recorded it as claimable, the
+    status is an eligible saving, and both paths passed the same checks. Any
+    weaker combination yields an ineligible baseline, so `_aggregate_groups`
+    will count its cost but never its saving.
+    """
+    if not record.get("baseline_status"):
+        return {}
+    comparison = {}
+    if record.get("comparison_json"):
+        try:
+            parsed = json.loads(record["comparison_json"])
+            comparison = parsed if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError):
+            comparison = {}
+    eligible = (
+        record.get("baseline_status") == "eligible_saving"
+        and bool(record.get("saving_claimable"))
+        and bool(record.get("equal_quality"))
+    )
+    baseline = {
+        "eligible": eligible,
+        "status": record.get("baseline_status"),
+        "baselineModelSpendUsd": _number((comparison.get("baseline") or {}).get("cost_usd")),
+    }
+    if eligible:
+        baseline["verifiedSavingUsd"] = _number(record.get("saving_usd"))
+    return baseline
+
+
+def _workflow_report_row(record: dict) -> dict | None:
+    """Maps a first-three-workflow proof onto the reporting row shape.
+
+    Measures the classic runner does not record are left absent rather than
+    defaulted to zero, because `_aggregate_groups` only counts a rate when it is
+    a real number. Writing 0.0 for an unmeasured rate would drag the fleet mean
+    toward zero and misreport governance the run never claimed to perform.
+    """
+    try:
+        proof = json.loads(record["proof_json"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not isinstance(proof, dict):
+        return None
+    created = record.get("created_at") or proof.get("created_at")
+    if not created:
+        return None
+
+    usage = proof.get("usage") or {}
+    economics = proof.get("economics") or {}
+    outcome = proof.get("outcome") or {}
+    routing = proof.get("routing") or {}
+
+    operations = _number(routing.get("operations"))
+    local_operations = _number(routing.get("completed_without_generative_ai")) or 0.0
+    quality_passed = bool(outcome.get("quality_passed"))
+
+    metrics = {
+        "acceptedOutcomes": 1 if quality_passed else 0,
+        "modelCalls": _number(usage.get("model_calls")) or 0.0,
+        "localOperations": local_operations,
+        "efficientCalls": _number(routing.get("efficient_ai")) or 0.0,
+        "advancedCalls": _number(routing.get("advanced_ai")) or 0.0,
+        "qualityPassRate": 1.0 if quality_passed else 0.0,
+    }
+    if operations:
+        metrics["localOperationRate"] = local_operations / operations
+
+    evidence = proof.get("input_evidence")
+    return {
+        "runId": record["run_id"],
+        "createdAt": created,
+        "dimensions": {
+            "application": record.get("workflow_id"),
+            "environment": None,
+            # The first three workflows are not optimization runs, so they carry
+            # no optimization target. Leaving it null keeps the target filter
+            # honest instead of inventing a category for them.
+            "optimizationTarget": None,
+            "proofType": "measured" if evidence in _WORKFLOW_MEASURED_EVIDENCE else "sample",
+            "priceTableVersion": economics.get("price_table_version"),
+            "workflowId": record.get("workflow_id"),
+            "source": "workflow",
+            "measurementLabel": proof.get("measurement_label"),
+        },
+        "cost": {"modelSpendUsd": _number(economics.get("calculated_model_cost_usd"))},
+        "baseline": _workflow_baseline(record),
+        "metrics": metrics,
+        "outcome": outcome,
+        "usage": usage,
+    }
+
+
+def _workflow_report_rows(limit: int = 1000) -> list[dict]:
+    rows = [_workflow_report_row(record) for record in ledger_store.report_proofs(limit)]
+    return [row for row in rows if row is not None]
 
 
 def _empty_rate() -> dict:
@@ -1417,12 +1530,14 @@ def _opportunities(rows: list[dict]) -> list[dict]:
 
 def reports(proof_type: str | None = None, application: str | None = None, limit: int = 200,
             optimization_target: str | None = None, from_: str | None = None, to: str | None = None,
-            bucket: str = "day") -> dict:
+            bucket: str = "day", source: str | None = None) -> dict:
     if proof_type is not None and proof_type not in {"measured", "projected", "sample"}:
         raise HTTPException(422, "proofType must be measured, projected, or sample.")
     if optimization_target:
         if optimization_target not in _REPORT_TARGETS:
             raise HTTPException(422, "optimizationTarget must be current_workflow, single_prompt, or measured_workflow.")
+    if source is not None and source not in _REPORT_SOURCES:
+        raise HTTPException(422, "source must be optimization or workflow.")
     if bucket not in _REPORT_BUCKETS:
         raise HTTPException(422, "bucket must be day or week.")
     start = _report_datetime(from_, "from") if from_ is not None else None
@@ -1431,6 +1546,13 @@ def reports(proof_type: str | None = None, application: str | None = None, limit
         raise HTTPException(422, "from must be before to.")
     limit = max(1, min(limit, 1000))
     rows = [_report_row(run) for run in store.history(1000) if run.get("proof")]
+    # Reporting spans every proof-bearing run, not just optimization runs. The
+    # first three workflows persist their proofs to the durable ledger, so they
+    # are mapped in here and sorted back into one timeline.
+    rows.extend(_workflow_report_rows(1000))
+    rows.sort(key=lambda row: _stored_datetime(row["createdAt"]), reverse=True)
+    if source:
+        rows = [row for row in rows if row.get("dimensions", {}).get("source") == source]
     if application:
         rows = [row for row in rows if row.get("dimensions", {}).get("application") == application]
     if optimization_target:

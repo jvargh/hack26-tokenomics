@@ -89,6 +89,42 @@ def seed_run(page, api_url) -> str:
     return run_id
 
 
+def seed_workflow_run(page, api_url, workflow: str = "document_review") -> str:
+    """Drive one of the first three workflows to a recorded proof.
+
+    These runs persist to the durable ledger rather than the optimization store.
+    Reporting has to read them from there, so this covers the path that
+    previously produced an empty report despite a completed run.
+    """
+    sample = page.request.post(f"{api_url}/api/uploads/sample",
+                               data={"workflow_id": workflow})
+    assert sample.status == 200, sample.text()
+    uploads = {role: [item["upload_id"] for item in items]
+               for role, items in sample.json()["uploads"].items()}
+
+    analyze = page.request.post(f"{api_url}/api/runs/analyze", data={
+        "workflow_id": workflow,
+        "input_source": "sample",
+        "uploads": uploads,
+        "inputs": {"review-focus": "Unsupported charges"},
+        "desired_outcome": "",
+        "requirements": {"maximum_cost_usd": 1.0, "required_quality_score": 0.9},
+    })
+    assert analyze.status == 200, analyze.text()
+
+    started = page.request.post(f"{api_url}/api/runs",
+                                data={"plan_id": analyze.json()["plan_id"]})
+    assert started.status == 200, started.text()
+    run_id = started.json()["run_id"]
+
+    deadline = time.monotonic() + 120.0
+    while time.monotonic() < deadline:
+        if page.request.get(f"{api_url}/api/runs/{run_id}/proof").status == 200:
+            return run_id
+        time.sleep(0.25)
+    pytest.fail(f"Workflow run {run_id} never produced a proof")
+
+
 def wait_for_reported_runs(page, api_url, expected: int, timeout: float = 60.0) -> list:
     """Runs only reach reporting once they carry a recorded proof."""
     deadline = time.monotonic() + timeout
@@ -320,6 +356,124 @@ def test_charts_carry_a_text_alternative(page, browser_servers):
             )"""
         )
         assert described, f"Chart {index} has no accessible name and is not hidden from AT"
+
+
+# -------------------------------------------- cross-workflow run coverage
+
+
+def test_a_completed_workflow_run_reaches_reporting(page, browser_servers):
+    """Reporting spans every proof-bearing run, not just optimization runs.
+
+    The first three workflows persist to the durable ledger while the fourth
+    writes to the optimization store. Reporting once read only the latter, so a
+    finished document review left the screen claiming there was nothing to show.
+    """
+    api = browser_servers["api"]
+    run_id = seed_workflow_run(page, api)
+
+    response = page.request.get(f"{api}/api/optimization/reports?source=workflow")
+    assert response.status == 200, response.text()
+    reported = {run["runId"] for run in response.json()["runs"]}
+    assert run_id in reported, "A completed workflow run never reached reporting"
+
+    open_reports(page)
+    expect(page.get_by_test_id("reports-empty")).to_have_count(0)
+    expect(page.get_by_test_id("panel-recent-runs")).to_be_visible()
+    # `.first` because the sparkline title also names the run.
+    expect(
+        page.get_by_test_id("panel-recent-runs").locator("td", has_text=run_id).first
+    ).to_be_visible()
+
+
+def test_a_workflow_run_reports_its_own_workflow_not_a_default(page, browser_servers):
+    """The row must name the workflow that actually ran.
+
+    The table used to read flat keys off a nested payload, so every row silently
+    fell back to a default label. A row that cannot be attributed is worse than
+    useless: it invites the reader to trust the wrong provenance.
+    """
+    api = browser_servers["api"]
+    run_id = seed_workflow_run(page, api)
+    open_reports(page)
+
+    row = page.get_by_test_id("panel-recent-runs").locator("tr", has_text=run_id).first
+    expect(row).to_be_visible()
+    text = row.inner_text()
+    assert "document_review" in text, f"Row did not name its workflow: {text!r}"
+    assert "Optimization workflow" not in text, (
+        f"Workflow run mislabelled as an optimization run: {text!r}"
+    )
+
+
+def test_a_sample_run_is_never_labelled_measured(page, browser_servers):
+    """Evidence strength must survive the round trip.
+
+    A run over bundled fixtures is reproducible input. Rendering it as
+    "measured" would present a demo figure as production spend, which is the one
+    thing this screen must never do.
+    """
+    api = browser_servers["api"]
+    run_id = seed_workflow_run(page, api)
+
+    response = page.request.get(f"{api}/api/optimization/reports?source=workflow")
+    reported = next(run for run in response.json()["runs"] if run["runId"] == run_id)
+    assert reported["dimensions"]["proofType"] == "sample", (
+        "A bundled-sample run must not be classified as measured"
+    )
+
+    open_reports(page)
+    row = page.get_by_test_id("panel-recent-runs").locator("tr", has_text=run_id).first
+    cells = row.locator("td")
+    # The Proof column must name the evidence honestly.
+    assert cells.nth(3).inner_text().strip() == "sample", (
+        f"Proof column read {cells.nth(3).inner_text()!r} for a fixture run"
+    )
+    # And no figure on the row may be tiered as governed production spend.
+    assert row.locator(".tier.is-measured-governed").count() == 0, (
+        "A fixture run's figures were tiered as governed production spend"
+    )
+    assert row.locator(".tier.is-measured-sample").count() > 0, (
+        "A fixture run's figures should be tiered as a measured sample run"
+    )
+
+
+def test_a_workflow_run_without_a_baseline_claims_no_saving(page, browser_servers):
+    """No paired baseline means no verified saving, however cheap the run was."""
+    api = browser_servers["api"]
+    run_id = seed_workflow_run(page, api)
+
+    response = page.request.get(f"{api}/api/optimization/reports?source=workflow")
+    reported = next(run for run in response.json()["runs"] if run["runId"] == run_id)
+    assert not reported.get("baseline"), "A run with no baseline reported one"
+
+    open_reports(page)
+    row = page.get_by_test_id("panel-recent-runs").locator("tr", has_text=run_id).first
+    assert not row.locator(".tier-verified-saving").count(), (
+        "A verified saving was claimed without a paired baseline"
+    )
+
+
+def test_the_source_filter_is_rejected_when_unknown(page, browser_servers):
+    api = browser_servers["api"]
+    response = page.request.get(f"{api}/api/optimization/reports?source=nonsense")
+    assert response.status == 422, response.text()
+
+
+def test_export_names_the_run_source(page, browser_servers):
+    """An exported row has to say where it came from, or the two run kinds are
+    indistinguishable once the file leaves the product."""
+    api = browser_servers["api"]
+    seed_workflow_run(page, api)
+
+    response = page.request.get(
+        f"{api}/api/optimization/reports/export?format=csv&source=workflow"
+    )
+    assert response.status == 200, response.text()
+    body = response.text()
+    header = body.splitlines()[0]
+    assert "source" in header and "workflowId" in header, header
+    assert "workflow" in body
+    assert "None" not in body, "CSV leaked a Python None instead of an empty cell"
 
 
 # ------------------------------------------------------- theming (source guard)

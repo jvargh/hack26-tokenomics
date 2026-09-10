@@ -248,9 +248,15 @@ def test_csv_export_quotes_commas_and_renders_none_empty(client):
     assert response.status_code == 200
     assert '"sales, ops"' in response.text
     assert "None" not in response.text
-    rows = list(csv.reader(io.StringIO(response.text)))
-    assert rows[0][0:4] == ["runId", "createdAt", "application", "environment"]
-    assert rows[1][2] == "sales, ops"
-    assert rows[1][8] == ""
-    assert rows[1][11] == ""
-    assert rows[1][16] == ""
+
+    # Index by column name rather than position: the point of this test is
+    # quoting and empty-vs-"None", not the column order, and positional
+    # assertions break on every additive column.
+    reader = csv.DictReader(io.StringIO(response.text))
+    assert reader.fieldnames[0:6] == ["runId", "createdAt", "source", "workflowId",
+                                      "application", "environment"]
+    row = next(reader)
+    assert row["application"] == "sales, ops"
+    assert row["baselineModelSpendUsd"] == ""
+    assert row["costPerAcceptedOutcomeUsd"] == ""
+    assert row["escalationRate"] == ""

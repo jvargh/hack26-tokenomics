@@ -195,6 +195,29 @@ class RunLedger:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def report_proofs(self, limit: int = 1000) -> list[dict]:
+        """Full proof documents joined with their baseline comparison.
+
+        `report()` returns flat pre-selected columns for the ledger card. This
+        returns the whole stored proof and comparison so cross-workflow
+        reporting can map every measure it needs without a second query.
+        """
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    p.run_id, p.workflow_id, p.status, p.created_at, p.proof_json,
+                    b.status AS baseline_status, b.saving_claimable, b.saving_usd,
+                    b.equal_quality, b.comparison_json
+                FROM run_proofs p
+                LEFT JOIN run_baselines b ON b.run_id = p.run_id
+                ORDER BY p.created_at DESC
+                LIMIT ?
+                """,
+                (max(1, min(limit, 1000)),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def summary(self) -> dict:
         """Aggregate measures across every persisted run, for the reporting card."""
         with self._lock, self._connect() as connection:

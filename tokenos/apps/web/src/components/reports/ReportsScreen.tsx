@@ -18,6 +18,7 @@ import {
   formatUsd,
   targetLabel
 } from "./reportValue";
+import type { ReportTier } from "./reportValue";
 
 type RangePreset = "last7" | "last30" | "all";
 type ExportFormat = "json" | "csv";
@@ -96,12 +97,64 @@ function downloadBlob(blob: Blob, format: ExportFormat) {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Flattens a report row into the fields the table renders.
+ *
+ * The endpoint nests measures under `dimensions`, `cost`, `baseline` and
+ * `metrics`, and the two run sources disagree on where counters live:
+ * optimization runs put them on `cost`, workflow runs on `metrics`. Reading a
+ * flat key straight off the row silently yields `undefined` and falls through
+ * to a default, which is how a sample run could previously render as
+ * "measured". Everything unresolved stays `null` so the caller renders an
+ * em-dash rather than inventing a value.
+ */
+function runView(run: ReportRun) {
+  const record = run as Record<string, unknown>;
+  const nested = (key: string): Record<string, unknown> => {
+    const value = record[key];
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  };
+  const dimensions = nested("dimensions");
+  const cost = nested("cost");
+  const baseline = nested("baseline");
+  const metrics = nested("metrics");
+
+  const pick = (...candidates: unknown[]): unknown =>
+    candidates.find((candidate) => candidate !== undefined && candidate !== null);
+
+  const text = (value: unknown): string | null =>
+    typeof value === "string" && value.trim() !== "" ? value : null;
+
+  const counter = (key: string): number | null =>
+    numberOrNull(pick(cost[key], metrics[key]));
+
+  const savingEligible = baseline.eligible === true;
+
+  return {
+    workflow: text(pick(dimensions.workflow, dimensions.workflowId, dimensions.application, record.workflow)),
+    workflowId: text(pick(dimensions.workflowId, record.workflowId, record.workflow_id)),
+    source: text(dimensions.source),
+    optimizationTarget: text(pick(dimensions.optimizationTarget, record.optimizationTarget)),
+    proofType: text(pick(dimensions.proofType, record.proofType)),
+    governedModelSpendUsd: numberOrNull(pick(cost.modelSpendUsd, record.governedModelSpendUsd)),
+    baselineModelSpendUsd: numberOrNull(pick(baseline.baselineModelSpendUsd, record.baselineModelSpendUsd)),
+    // A saving is shown only when the server marked the baseline eligible.
+    // Without that flag the run has no verified saving to report.
+    verifiedSavingUsd: savingEligible ? numberOrNull(baseline.verifiedSavingUsd) : null,
+    costPerAcceptedOutcomeUsd: numberOrNull(pick(cost.costPerAcceptedOutcomeUsd, record.costPerAcceptedOutcomeUsd)),
+    qualityPassRate: numberOrNull(pick(metrics.qualityPassRate, record.qualityPassRate)),
+    acceptedOutcomes: counter("acceptedOutcomes"),
+    modelCalls: counter("modelCalls")
+  };
+}
+
 function runWorkflow(run: ReportRun): string {
-  return String(run.workflow ?? run.application ?? "Optimization workflow");
+  const view = runView(run);
+  return view.workflow ?? "Unattributed run";
 }
 
 function runWorkflowId(run: ReportRun): string | undefined {
-  const workflowId = run.workflowId ?? run.workflow_id;
+  const workflowId = runView(run).workflowId;
   return typeof workflowId === "string" ? workflowId : undefined;
 }
 
@@ -256,7 +309,7 @@ export function ReportsScreen({
         <section className="panel empty-state" data-testid="reports-empty">
           <h2>No runs in this range yet</h2>
           <p>
-            TokenOS will not substitute estimates for missing measurements. Run an optimization
+            TokenOS will not substitute estimates for missing measurements. Complete any
             workflow or widen the range to see measured spend, quality, and savings.
           </p>
         </section>
@@ -377,7 +430,13 @@ export function ReportsScreen({
                   </thead>
                   <tbody>
                     {runs.map((run) => {
-                      const saving = numberOrNull(run.verifiedSavingUsd);
+                      const view = runView(run);
+                      const saving = view.verifiedSavingUsd;
+                      // Tier each figure by the evidence the run itself carries.
+                      // A fixture run's usage was measured, but it is not
+                      // production spend and must not be styled as if it were.
+                      const spendTier: ReportTier =
+                        view.proofType === "sample" ? "measured-sample" : "measured-governed";
                       return (
                         <tr
                           key={run.runId}
@@ -394,16 +453,16 @@ export function ReportsScreen({
                         >
                           <td>{run.runId}</td>
                           <td>{runWorkflow(run)}</td>
-                          <td>{targetLabel(run.optimizationTarget)}</td>
-                          <td>{run.proofType ?? "measured"}</td>
+                          <td>{view.optimizationTarget ? targetLabel(view.optimizationTarget) : "—"}</td>
+                          <td>{view.proofType ?? "—"}</td>
                           <td className="numeric">
-                            <MetricValue value={numberOrNull(run.governedModelSpendUsd)} tier="measured-governed" formatter={formatUsd} subtleTier />
+                            <MetricValue value={view.governedModelSpendUsd} tier={spendTier} formatter={formatUsd} subtleTier />
                           </td>
                           <td className="numeric">
-                            <MetricValue value={numberOrNull(run.costPerAcceptedOutcomeUsd)} tier="measured-governed" formatter={formatUnitUsd} subtleTier />
+                            <MetricValue value={view.costPerAcceptedOutcomeUsd} tier={spendTier} formatter={formatUnitUsd} subtleTier />
                           </td>
                           <td className="numeric">
-                            <MetricValue value={numberOrNull(run.qualityPassRate)} tier="measured-governed" formatter={formatPercent} subtleTier />
+                            <MetricValue value={view.qualityPassRate} tier={spendTier} formatter={formatPercent} subtleTier />
                           </td>
                           <td className="numeric">
                             <MetricValue
@@ -417,8 +476,8 @@ export function ReportsScreen({
                             <Sparkline
                               title={`Spend evidence for ${run.runId}`}
                               values={[
-                                numberOrNull(run.governedModelSpendUsd),
-                                numberOrNull(run.baselineModelSpendUsd),
+                                view.governedModelSpendUsd,
+                                view.baselineModelSpendUsd,
                                 saving
                               ]}
                               tone={saving !== null && saving > 0 ? "good" : "muted"}
