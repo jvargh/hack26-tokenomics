@@ -1172,7 +1172,18 @@ def _report_row(run: dict) -> dict:
 _WORKFLOW_MEASURED_EVIDENCE = {"upload"}
 
 
-def _workflow_baseline(record: dict) -> dict:
+def _workflow_comparison(record: dict) -> dict:
+    """Parses the stored baseline comparison, or an empty dict when absent."""
+    if not record.get("comparison_json"):
+        return {}
+    try:
+        parsed = json.loads(record["comparison_json"])
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _workflow_baseline(record: dict, comparison: dict) -> dict:
     """Maps a stored baseline comparison onto the reporting baseline shape.
 
     A saving is surfaced only when the ledger recorded it as claimable, the
@@ -1182,13 +1193,6 @@ def _workflow_baseline(record: dict) -> dict:
     """
     if not record.get("baseline_status"):
         return {}
-    comparison = {}
-    if record.get("comparison_json"):
-        try:
-            parsed = json.loads(record["comparison_json"])
-            comparison = parsed if isinstance(parsed, dict) else {}
-        except (TypeError, ValueError):
-            comparison = {}
     eligible = (
         record.get("baseline_status") == "eligible_saving"
         and bool(record.get("saving_claimable"))
@@ -1202,6 +1206,20 @@ def _workflow_baseline(record: dict) -> dict:
     if eligible:
         baseline["verifiedSavingUsd"] = _number(record.get("saving_usd"))
     return baseline
+
+
+def _workflow_calls_avoided(comparison: dict) -> float | None:
+    """Model calls the governed route did not have to make.
+
+    Counted only when a paired baseline actually ran, because without one there
+    is nothing to have avoided — the figure would be a guess about a run that
+    never happened.
+    """
+    baseline_calls = _number((comparison.get("baseline") or {}).get("model_calls"))
+    governed_calls = _number((comparison.get("governed") or {}).get("model_calls"))
+    if baseline_calls is None or governed_calls is None:
+        return None
+    return max(baseline_calls - governed_calls, 0.0)
 
 
 def _workflow_report_row(record: dict) -> dict | None:
@@ -1242,6 +1260,11 @@ def _workflow_report_row(record: dict) -> dict | None:
     if operations:
         metrics["localOperationRate"] = local_operations / operations
 
+    comparison = _workflow_comparison(record)
+    calls_avoided = _workflow_calls_avoided(comparison)
+    if calls_avoided is not None:
+        metrics["modelCallsAvoided"] = calls_avoided
+
     evidence = proof.get("input_evidence")
     return {
         "runId": record["run_id"],
@@ -1260,7 +1283,7 @@ def _workflow_report_row(record: dict) -> dict | None:
             "measurementLabel": proof.get("measurement_label"),
         },
         "cost": {"modelSpendUsd": _number(economics.get("calculated_model_cost_usd"))},
-        "baseline": _workflow_baseline(record),
+        "baseline": _workflow_baseline(record, comparison),
         "metrics": metrics,
         "outcome": outcome,
         "usage": usage,

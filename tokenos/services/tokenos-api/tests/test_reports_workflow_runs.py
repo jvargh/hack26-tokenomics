@@ -179,6 +179,62 @@ def test_a_fully_eligible_baseline_reports_its_saving(ledger):
     assert measured["baselineModelSpendUsd"] == pytest.approx(0.006)
 
 
+def test_a_paired_baseline_reports_the_calls_it_avoided(ledger):
+    """Model calls avoided is a measured difference against a baseline that
+    actually ran, not a guess about a run that never happened."""
+    ledger.record_proof("run-1", "document_review", UPLOAD_PROOF)
+    ledger.record_baseline("run-1", {
+        "status": "eligible_saving",
+        "saving_claimable": True,
+        "saving_usd": 0.0058,
+        "equal_quality": True,
+        "governed": {"model_calls": 1},
+        "baseline": {"cost_usd": 0.006, "model_calls": 8},
+    })
+
+    metrics = rows_for(ledger)[0]["metrics"]
+
+    assert metrics["modelCallsAvoided"] == 7
+
+
+def test_calls_avoided_is_absent_without_a_baseline(ledger):
+    """With no baseline there is nothing to have avoided. Reporting 0 would be a
+    claim about a comparison that was never run."""
+    ledger.record_proof("run-1", "document_review", UPLOAD_PROOF)
+
+    assert "modelCallsAvoided" not in rows_for(ledger)[0]["metrics"]
+
+
+def test_calls_avoided_never_goes_negative(ledger):
+    """A governed run that made more calls than the baseline avoided none. A
+    negative count would read as calls conjured from nowhere."""
+    ledger.record_proof("run-1", "document_review", UPLOAD_PROOF)
+    ledger.record_baseline("run-1", {
+        "status": "no_saving",
+        "saving_claimable": False,
+        "saving_usd": 0.0,
+        "equal_quality": True,
+        "governed": {"model_calls": 5},
+        "baseline": {"cost_usd": 0.006, "model_calls": 1},
+    })
+
+    assert rows_for(ledger)[0]["metrics"]["modelCallsAvoided"] == 0
+
+
+def test_sample_and_measured_evidence_are_never_summed(ledger):
+    """Combining them into one total would overstate production spend by the
+    cost of every fixture run."""
+    ledger.record_proof("run-real", "document_review", UPLOAD_PROOF)
+    ledger.record_proof("run-fixture", "document_review", SAMPLE_PROOF)
+
+    groups = engine._aggregate_groups(rows_for(ledger))
+
+    assert groups["measured"]["runCount"] == 1
+    assert groups["sample"]["runCount"] == 1
+    assert groups["measured"]["governedModelSpendUsd"] == pytest.approx(0.000169)
+    assert groups["sample"]["governedModelSpendUsd"] == pytest.approx(0.000169)
+
+
 def test_a_corrupt_proof_is_skipped_not_fatal(ledger):
     ledger.record_proof("run-good", "document_review", UPLOAD_PROOF)
     with ledger._connect() as connection:  # noqa: SLF001 - deliberate corruption

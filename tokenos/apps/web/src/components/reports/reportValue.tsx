@@ -72,14 +72,28 @@ export function MetricValue({
   tierTestId?: string;
   subtleTier?: boolean;
 }) {
+  const text = value === null ? "—" : formatter(value);
   return (
     <span className={`metric ${className ?? ""}`.trim()}>
-      <span className="metric-number" data-testid={valueTestId}>
-        {value === null ? "—" : formatter(value)}
+      {/* Long figures are common here: sub-cent unit economics need six decimal
+          places to avoid reading as $0.00. Publishing the rendered length lets
+          the stylesheet size the value to fit its card instead of clipping it. */}
+      <span className="metric-number" data-testid={valueTestId} data-length={lengthBand(text)}>
+        {text}
       </span>
       <TierChip tier={tier} testId={tierTestId} subtle={subtleTier} />
     </span>
   );
+}
+
+/** Coarse buckets rather than a per-character scale, so the headline figures
+ *  keep a consistent typographic rhythm instead of every card sizing slightly
+ *  differently. */
+function lengthBand(text: string): "short" | "medium" | "long" | "xlong" {
+  if (text.length <= 6) return "short";
+  if (text.length <= 8) return "medium";
+  if (text.length <= 10) return "long";
+  return "xlong";
 }
 
 export function formatNumber(value: number): string {

@@ -211,8 +211,27 @@ export function ReportsScreen({
     };
   }, [query]);
 
-  const measured = report?.groups.measured;
+  /**
+   * Which evidence the headline figures are drawn from.
+   *
+   * Measured and sample runs are never summed: with five measured and three
+   * sample runs, one combined total would overstate production spend. But
+   * reading only `measured` meant a screen full of zeros whenever the only runs
+   * so far were over bundled fixtures, which reads as "reporting is broken"
+   * rather than "these runs were samples". So the basis falls back to sample
+   * when there is no measured evidence, and every card is tiered accordingly.
+   */
+  const measuredGroup = report?.groups.measured;
+  const sampleGroup = report?.groups.sample;
+  const basis: "measured" | "sample" =
+    (measuredGroup?.runCount ?? 0) > 0 || (sampleGroup?.runCount ?? 0) === 0
+      ? "measured"
+      : "sample";
+  const measured = basis === "measured" ? measuredGroup : sampleGroup;
+  const basisTier: ReportTier = basis === "measured" ? "measured-governed" : "measured-sample";
   const previous = report?.previous;
+  const previousBasis = previous ? previous[basis] : null;
+  const seriesBasis = report?.series.map((bucket) => bucket[basis]) ?? [];
   const runs = report?.runs ?? [];
   const hasRuns = runs.length > 0;
   const projectionEntries = useMemo(
@@ -252,7 +271,7 @@ export function ReportsScreen({
           {report ? (
             <div className="summary-strip">
               <MetricValue value={report.groups.measured.runCount} tier="measured-governed" formatter={formatInteger} subtleTier />
-              <MetricValue value={report.groups.sample.runCount} tier="estimated" formatter={formatInteger} subtleTier />
+              <MetricValue value={report.groups.sample.runCount} tier="measured-sample" formatter={formatInteger} subtleTier />
               <MetricValue value={report.groups.projected.projectionCount} tier="projected" formatter={formatInteger} subtleTier />
             </div>
           ) : null}
@@ -317,6 +336,13 @@ export function ReportsScreen({
 
       {report && measured && !loading && hasRuns ? (
         <>
+          {basis === "sample" ? (
+            <p className="notice notice-brand" data-testid="reports-sample-basis">
+              These figures come from runs over bundled sample input. The usage was
+              measured, but the input is reproducible fixture data, so treat it as a
+              demonstration rather than production spend.
+            </p>
+          ) : null}
           <section className="kpi-grid" aria-label="Key reporting metrics">
             <KpiCard
               testId="kpi-verified-saving"
@@ -324,48 +350,49 @@ export function ReportsScreen({
               value={measured.verifiedSavingsUsd}
               tier={measured.verifiedSavingsUsd > 0 ? "verified-saving" : "neutral"}
               formatter={formatUsd}
-              delta={previous ? delta(measured.verifiedSavingsUsd, previous.measured.verifiedSavingsUsd) : null}
-              sparkline={report.series.map((bucket) => bucket.measured.verifiedSavingsUsd)}
+              delta={previousBasis ? delta(measured.verifiedSavingsUsd, previousBasis.verifiedSavingsUsd) : null}
+              sparkline={seriesBasis.map((bucket) => bucket.verifiedSavingsUsd)}
               tone={measured.verifiedSavingsUsd > 0 ? "good" : "muted"}
             />
             <KpiCard
               testId="kpi-governed-spend"
               label="Governed spend"
               value={measured.governedModelSpendUsd}
-              tier="measured-governed"
+              tier={basisTier}
               formatter={formatUsd}
-              delta={previous ? delta(measured.governedModelSpendUsd, previous.measured.governedModelSpendUsd) : null}
-              sparkline={report.series.map((bucket) => bucket.measured.governedModelSpendUsd)}
+              delta={previousBasis ? delta(measured.governedModelSpendUsd, previousBasis.governedModelSpendUsd) : null}
+              sparkline={seriesBasis.map((bucket) => bucket.governedModelSpendUsd)}
               tone="brand"
             />
             <KpiCard
               testId="kpi-cost-per-outcome"
               label="Cost per accepted outcome"
               value={measured.costPerAcceptedOutcomeUsd}
-              tier="measured-governed"
+              tier={basisTier}
               formatter={formatUnitUsd}
-              delta={previous ? delta(measured.costPerAcceptedOutcomeUsd, previous.measured.costPerAcceptedOutcomeUsd) : null}
-              sparkline={report.series.map((bucket) => bucket.measured.costPerAcceptedOutcomeUsd)}
+              delta={previousBasis ? delta(measured.costPerAcceptedOutcomeUsd, previousBasis.costPerAcceptedOutcomeUsd) : null}
+              sparkline={seriesBasis.map((bucket) => bucket.costPerAcceptedOutcomeUsd)}
               tone="brand"
             />
             <KpiCard
               testId="kpi-calls-avoided"
               label="Model calls avoided"
               value={measured.modelCallsAvoided}
-              tier="measured-governed"
+              tier={basisTier}
               formatter={formatInteger}
-              delta={previous ? delta(measured.modelCallsAvoided, previous.measured.modelCallsAvoided) : null}
-              sparkline={report.series.map((bucket) => bucket.measured.modelCallsAvoided)}
+              delta={previousBasis ? delta(measured.modelCallsAvoided, previousBasis.modelCallsAvoided) : null}
+              sparkline={seriesBasis.map((bucket) => bucket.modelCallsAvoided)}
               tone="brand"
+              note="Counted only against a paired baseline run."
             />
             <KpiCard
               testId="kpi-quality-pass"
               label="Quality pass rate"
               value={measured.rates.qualityPassRate.mean}
-              tier="measured-governed"
+              tier={basisTier}
               formatter={formatPercent}
-              delta={previous ? delta(measured.rates.qualityPassRate.mean, previous.measured.rates.qualityPassRate.mean) : null}
-              sparkline={report.series.map((bucket) => bucket.measured.rates.qualityPassRate.mean)}
+              delta={previousBasis ? delta(measured.rates.qualityPassRate.mean, previousBasis.rates.qualityPassRate.mean) : null}
+              sparkline={seriesBasis.map((bucket) => bucket.rates.qualityPassRate.mean)}
               tone="good"
             />
             <KpiCard
@@ -387,7 +414,7 @@ export function ReportsScreen({
               eyebrow="Measured over time"
               testId="panel-spend-trend"
             >
-              <SpendTrendChart series={report.series} />
+              <SpendTrendChart series={report.series} basis={basis} />
             </Panel>
 
             <Panel

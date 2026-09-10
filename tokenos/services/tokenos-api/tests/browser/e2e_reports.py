@@ -453,6 +453,109 @@ def test_a_workflow_run_without_a_baseline_claims_no_saving(page, browser_server
     )
 
 
+def active_basis(page, api_url) -> tuple[str, dict]:
+    """Which evidence group the headline should be drawn from, and that group.
+
+    Storage is shared across the whole browser session, so by the time this file
+    runs another suite may already have produced measured runs. The basis is
+    therefore a property of current state, not a constant: asserting a fixed
+    basis passes in isolation and fails in a full run.
+    """
+    report = page.request.get(f"{api_url}/api/optimization/reports").json()
+    measured = report["groups"]["measured"]
+    sample = report["groups"]["sample"]
+    if measured["runCount"] > 0 or sample["runCount"] == 0:
+        return "measured", measured
+    return "sample", sample
+
+
+def test_kpis_reflect_evidence_that_exists(page, browser_servers):
+    """The headline must not read zero while the runs table shows finished runs.
+
+    Every KPI card used to read `groups.measured`, so a range containing only
+    sample runs rendered $0.00 across the board while the runs table and
+    route-tier panel showed real data. That looks like broken reporting rather
+    than like a set of sample runs, and it hides genuine results.
+    """
+    api = browser_servers["api"]
+    seed_workflow_run(page, api)
+    basis, group = active_basis(page, api)
+    assert group["runCount"] > 0, "Expected the active basis to contain runs"
+
+    open_reports(page)
+    expect(page.locator(".kpi-grid")).to_be_visible()
+
+    def card_value(test_id: str) -> str:
+        """Second line of a KPI card is its value. Read that rather than the
+        whole card: the tier label contains an em-dash, which would collide with
+        the em-dash used for an unknown value."""
+        lines = [line.strip() for line in page.get_by_test_id(test_id).inner_text().splitlines()]
+        return next(line for line in lines[1:] if line)
+
+    if group["governedModelSpendUsd"] > 0:
+        spend = card_value("kpi-governed-spend")
+        assert spend not in {"$0.00", "—"}, (
+            f"Governed spend read {spend!r} on the {basis} basis despite "
+            f"{group['governedModelSpendUsd']} of measured spend"
+        )
+
+    if group["rates"]["qualityPassRate"]["mean"] is not None:
+        quality = card_value("kpi-quality-pass")
+        assert quality != "—", "Quality pass rate rendered as unknown despite a completed run"
+        assert quality.endswith("%"), f"Quality pass rate rendered as {quality!r}"
+
+
+def test_headline_figures_are_tiered_to_the_evidence_behind_them(page, browser_servers):
+    """Falling back to sample evidence must not quietly relabel it.
+
+    Showing fixture numbers under a "Measured — governed" chip would present a
+    demonstration as production spend, which is worse than showing zeros.
+    """
+    api = browser_servers["api"]
+    seed_workflow_run(page, api)
+    basis, _ = active_basis(page, api)
+
+    open_reports(page)
+    grid = page.locator(".kpi-grid")
+    expect(grid).to_be_visible()
+
+    if basis == "sample":
+        assert grid.locator(".tier.is-measured-sample").count() > 0, (
+            "Sample-basis KPIs were not tiered as a measured sample run"
+        )
+        assert grid.locator(".tier.is-measured-governed").count() == 0, (
+            "Sample evidence was tiered as governed production spend"
+        )
+    else:
+        assert grid.locator(".tier.is-measured-governed").count() > 0, (
+            "Measured-basis KPIs were not tiered as governed spend"
+        )
+        assert grid.locator(".tier.is-measured-sample").count() == 0, (
+            "Measured evidence was tiered as a sample run"
+        )
+
+
+def test_the_sample_notice_appears_exactly_when_the_basis_is_sample(page, browser_servers):
+    """The caveat has to track the figures. Shown on measured evidence it
+    understates them; missing on sample evidence it overstates them."""
+    api = browser_servers["api"]
+    seed_workflow_run(page, api)
+    basis, _ = active_basis(page, api)
+
+    open_reports(page)
+    expect(page.locator(".kpi-grid")).to_be_visible()
+    notice = page.get_by_test_id("reports-sample-basis")
+
+    if basis == "sample":
+        expect(notice).to_be_visible()
+        text = notice.inner_text().lower()
+        assert "sample" in text
+        assert "production spend" in text
+    else:
+        expect(notice).to_have_count(0)
+
+
+
 def test_the_source_filter_is_rejected_when_unknown(page, browser_servers):
     api = browser_servers["api"]
     response = page.request.get(f"{api}/api/optimization/reports?source=nonsense")
@@ -474,6 +577,84 @@ def test_export_names_the_run_source(page, browser_servers):
     assert "source" in header and "workflowId" in header, header
     assert "workflow" in body
     assert "None" not in body, "CSV leaked a Python None instead of an empty cell"
+
+
+# ------------------------------------------------------------------ layout
+
+
+OVERFLOW_PROBE = """
+() => {
+  const problems = [];
+  const tolerance = 1;
+  document.querySelectorAll('.reports .metric-number').forEach((node) => {
+    const holder = node.closest('.kpi-card, td, .panel');
+    if (!holder) return;
+    const value = node.getBoundingClientRect();
+    const bounds = holder.getBoundingClientRect();
+    const style = window.getComputedStyle(holder);
+    const left = bounds.left + (parseFloat(style.paddingLeft) || 0);
+    const right = bounds.right - (parseFloat(style.paddingRight) || 0);
+    if (value.right > right + tolerance || value.left < left - tolerance) {
+      problems.push({
+        text: node.textContent.trim(),
+        holder: holder.getAttribute('data-testid') || holder.tagName,
+        overflowRight: Math.round(value.right - right),
+        overflowLeft: Math.round(left - value.left)
+      });
+    }
+  });
+  return problems;
+}
+"""
+
+
+@pytest.mark.parametrize("width,height", [(1280, 900), (1024, 900), (820, 1000)])
+def test_no_reported_figure_overflows_its_card(page, browser_servers, width, height):
+    """Figures must stay inside the card that frames them.
+
+    Sub-cent unit economics need six decimal places to avoid reading as $0.00,
+    which makes them far wider than a percentage. The headline size was tied to
+    viewport width rather than card width, so those values ran past the card
+    edge and the reader could not finish the number.
+    """
+    api = browser_servers["api"]
+    seed_workflow_run(page, api)
+    page.set_viewport_size({"width": width, "height": height})
+    open_reports(page)
+    expect(page.locator(".kpi-grid")).to_be_visible()
+
+    problems = page.evaluate(OVERFLOW_PROBE)
+    assert not problems, f"Figures overflow their container at {width}px: {problems}"
+
+
+def test_the_reports_screen_does_not_scroll_sideways(page, browser_servers):
+    """A horizontal scrollbar on the whole page means something is pushing the
+    layout wider than the window, which hides content off-screen."""
+    api = browser_servers["api"]
+    seed_workflow_run(page, api)
+    page.set_viewport_size({"width": 1280, "height": 900})
+    open_reports(page)
+
+    overflow = page.evaluate(
+        "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
+    )
+    assert overflow <= 1, f"Reports screen scrolls sideways by {overflow}px"
+
+
+def test_a_long_figure_is_sized_down_rather_than_clipped(page, browser_servers):
+    """The sizing hook has to be present, or the guarantee above is accidental."""
+    api = browser_servers["api"]
+    seed_workflow_run(page, api)
+    open_reports(page)
+    # eval_on_selector_all does not auto-wait, so wait for the grid explicitly.
+    expect(page.locator(".kpi-grid")).to_be_visible()
+
+    bands = page.eval_on_selector_all(
+        ".kpi-value .metric-number",
+        "nodes => nodes.map(node => node.getAttribute('data-length'))"
+    )
+    assert bands, "No KPI figures rendered"
+    assert all(band in {"short", "medium", "long", "xlong"} for band in bands), bands
 
 
 # ------------------------------------------------------- theming (source guard)

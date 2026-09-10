@@ -2902,11 +2902,21 @@ pre {
   gap: 7px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  /* An inline-flex box sizes to its content, so without these a figure wider
+     than its card silently overflows the edge rather than being contained. */
+  max-width: 100%;
+  min-width: 0;
 }
 
 .metric-number {
   font-variant-numeric: tabular-nums;
   font-weight: 800;
+  min-width: 0;
+  max-width: 100%;
+  /* Last-resort guarantee: if a figure is still too wide after sizing, it
+     wraps inside the card instead of being clipped. A number the reader cannot
+     finish reading is worse than one on two lines. */
+  overflow-wrap: anywhere;
 }
 
 .metric .comparison-chip {
@@ -3038,6 +3048,22 @@ pre {
   font-size: clamp(24px, 3vw, 32px);
   letter-spacing: -0.035em;
   color: var(--tos-text);
+}
+
+/* Headline figures are sized to the text they actually carry. A six-decimal
+   unit cost is half again as wide as a percentage, and a single fixed size
+   either clips the long values or wastes the card on the short ones. */
+.kpi-value .metric-number[data-length="medium"] {
+  font-size: clamp(21px, 2.5vw, 27px);
+}
+
+.kpi-value .metric-number[data-length="long"] {
+  font-size: clamp(18px, 2.1vw, 23px);
+}
+
+.kpi-value .metric-number[data-length="xlong"] {
+  font-size: clamp(15px, 1.8vw, 19px);
+  letter-spacing: -0.02em;
 }
 
 .kpi-card.is-verified-saving .kpi-value .metric-number {

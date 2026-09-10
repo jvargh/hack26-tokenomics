@@ -86,12 +86,20 @@ export function Sparkline({
   );
 }
 
-export function SpendTrendChart({ series }: { series: ReportSeriesBucket[] }) {
+export function SpendTrendChart({
+  series,
+  basis = "measured"
+}: {
+  series: ReportSeriesBucket[];
+  /** Which evidence group to plot. Measured and sample are never combined:
+   *  one line mixing production spend with fixture runs would misstate both. */
+  basis?: "measured" | "sample";
+}) {
   const id = useId();
-  const governed = series.map((bucket) => bucket.measured.governedModelSpendUsd);
+  const governed = series.map((bucket) => bucket[basis].governedModelSpendUsd);
   const baseline = series.map((bucket) =>
-    bucket.measured.baselineModelSpendUsd > 0 || bucket.measured.verifiedSavingsUsd > 0
-      ? bucket.measured.baselineModelSpendUsd
+    bucket[basis].baselineModelSpendUsd > 0 || bucket[basis].verifiedSavingsUsd > 0
+      ? bucket[basis].baselineModelSpendUsd
       : null
   );
   const allValues = [...governed, ...baseline].filter((value): value is number => value !== null);
