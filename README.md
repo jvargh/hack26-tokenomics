@@ -12,6 +12,14 @@ is never treated as a verified saving.
 the starting point for setup, evaluation, and navigation. The
 [application README](tokenos/README.md) contains additional workflow background.
 
+![TokenOS AI Work Optimizer overview. A seven-phase band reads Describe, Plan, Optimize, Protect, Run, Verify, Prove. Beneath it a routing diagram shows a prompt or workflow entering local rules, retrieval and reuse, then an efficient Foundry model only if needed, with a branch that escalates only if required, ending in quality verification and measured cost and outcome proof.](imgs/TokenOS-main-slide.png)
+
+The seven phases run left to right. The routing diagram below them carries the
+actual design: local rules, retrieval, and reuse resolve what they can, an
+efficient model is called only if unresolved work remains, and the escalation
+branch is taken only when the efficient route fails verification. Every path ends
+in quality verification and measured proof.
+
 ## Contents
 
 - [Quick start](#quick-start)
@@ -225,6 +233,32 @@ TokenOS FastAPI service
 TokenOS remains the **policy, routing, and measurement layer**. Foundry is a
 bounded inference provider behind that layer, not a replacement for it.
 
+![TokenOS engine deep dive. The request path runs from the React web client through the FastAPI application to a dispatching runs endpoint and server-owned run state. Panels detail the API surface, two independent engines behind one API, the Foundry spend boundary, a durable SQLite proof gate, the conditions under which two runs are comparable, and the comparison rule that yields a verified saving.](imgs/TokenOS-Engine-Deep-Dive.png)
+
+Three properties of that layer are worth calling out:
+
+- **Two engines, one API.** The classic engine runs the three fixed workflows;
+  the optimization engine runs the describe-to-execute sequence. Both follow a
+  server-authorized state machine (`described → planned → optimized →
+  authorized`, then `running → completed | failed`). The server owns that state
+  and returns `409` naming the required and current status, so a client cannot
+  skip a phase or authorize spend out of order.
+- **One spend boundary.** `_call_model()` is the only path that can spend. It
+  validates contract, tenant, scope, and authorization, reserves the worst-case
+  cost before calling Foundry, allows a single strict attempt, and records
+  tokens, request ID, latency, and an exact `Decimal` cost.
+  [`modeladapter.py`](tokenos/services/tokenos-api/tokenos_api/modeladapter.py)
+  is the only module that imports the provider SDK, and credentials stay
+  server-side.
+- **A durable proof gate.** Runs, events, files, and claims persist to SQLite
+  with a gap-free sequence that drives both live SSE and replay. Two runs are
+  comparable only when they share a contract and price hash, both pass their
+  quality gates, usage is complete, outcomes are equal, and provider request IDs
+  are present.
+
+The behaviour is **fail closed**: incomplete evidence never becomes zero cost,
+and a cheaper rejected answer never becomes a saving.
+
 | Code area | Responsibility |
 | --- | --- |
 | [Web source](tokenos/apps/web/src/) | Application shell, shared components, existing phases, and run state. |
@@ -280,6 +314,21 @@ Until then, the UI uses states such as **Comparison not run**,
 **Zero model tokens is not zero total cost.** Local execution still consumes
 compute, storage, and operational effort. Cache eligibility is not a measured
 cache hit; only provider-reported cached tokens establish cache usage.
+
+### A worked example
+
+![TokenOS benefits. A measured sample walkthrough reports a verified saving of $0.0065 per run, with a matched all-AI baseline bar at about $0.0067 against a much shorter TokenOS governed route bar at $0.0002, alongside figures of about 97 percent lower measured model spend, 7 of 8 operations using zero model tokens, and 1 Foundry model call. A second column explains how the benefit is created, and a footer row summarises the value to finance, engineering, governance, and product and users.](imgs/TokenOS-Benefits.png)
+
+This is one measured sample run in which both routes completed the same work and
+passed the same quality checks. The matched all-AI baseline cost about
+**$0.0067**, the governed route cost **$0.0002**, and the difference of
+**$0.0065 per run** qualifies as a verified saving only because the baseline
+actually ran, matched on every requirement above, and cost more. Seven of eight
+operations used zero model tokens; one Foundry call was authorized.
+
+Two caveats printed on the figure apply to every number in it: these are
+**sample figures, not a customer claim**, and **zero model tokens does not mean
+zero total operating cost**.
 
 ## Optional Azure deployment
 
@@ -521,6 +570,7 @@ Results there are snapshots of executed validation, not promises about a future 
 .
 |-- README.md                       This entry point
 |-- docs/                           Product and implementation specifications
+|-- imgs/                           Diagrams referenced by this README
 |-- infra/                          Azure Developer CLI and Bicep deployment
 |   |-- azure.yaml                  azd project and service configuration
 |   |-- main.bicep                  Subscription-scope deployment entry point
