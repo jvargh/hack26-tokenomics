@@ -14,14 +14,14 @@ Link to test: [TokenOS ACA App](https://tokenos-hack26.yellowwater-54592620.east
 |---|---|
 | **Shipped** | 4 workflows, 7 governed phases, FastAPI + React, Azure AI Foundry, deployed on ACA |
 | **Verified result** | **97% lower measured model spend** on a matched-baseline run: $0.0067 all-AI vs **$0.0002** governed |
-| **Routing** | **7 of 8 operations used zero model tokens**; 1 efficient Foundry call authorised |
+| **Routing** | **7 of 8 operations used zero model tokens**; 1 efficient Foundry call Authorized |
 | **Tested** | 381 automated tests (235 API/unit, 146 browser/visual), all passing |
 
 That 97% is a *verified* saving under the definition in [Honest savings proof](#honest-savings-proof), not a projection: a paired baseline ran, matched on every requirement, and cost more. The absolute figure is small because the sample workload is small. The transferable result is the **ratio**, produced by routing 7 of 8 operations away from the model entirely. Applied to 1,000 runs the same difference is $6.50, and TokenOS labels that figure **Projected at volume**, never a saving, because only one run was measured.
 
 The Tokenomics challenge asks us to move beyond reactive token caps and usage reports. Enterprises do not need AI usage to be restricted. They need AI work to be intentional, measurable, governed, and economically defensible. TokenOS addresses that gap by choosing the least-expensive safe route for every part of an AI task, then proving the outcome and its economics.
 
-> **About the live link.** It runs in **simulated AI mode** so judges can walk the entire journey at zero model cost. Every non-model step is genuine: uploads, parsing, duplicate detection, policy checks, arithmetic, test execution, routing, budget authorisation and all quality gates. Only the model reply is authored, the build says so on every screen, and its artifacts carry `origin=simulated`. **The measured figures in this document come from real Azure AI Foundry runs, not from that demonstration.**
+> **About the live link.** It runs in **simulated AI mode** so judges can walk the entire journey at zero model cost. Every non-model step is genuine: uploads, parsing, duplicate detection, policy checks, arithmetic, test execution, routing, budget authorization and all quality gates. Only the model reply is authored, the build says so on every screen, and its artifacts carry `origin=simulated`. **The measured figures in this document come from real Azure AI Foundry runs, not from that demonstration.**
 
 ## The problem
 
@@ -58,6 +58,20 @@ TokenOS runs through seven visible phases:
 6. **Verify**: Check citations, facts, policy coverage, structured output, tests, amounts, deadlines, and workflow-specific acceptance criteria.
 7. **Prove**: Show what completed without generative AI, why any AI call was allowed, measured model cost, quality outcome, and verified savings when a matched baseline qualifies.
 
+## How this differs from existing approaches
+
+Most AI cost tooling accepts that a model call will happen and tries to make it cheaper. TokenOS questions the call itself, then refuses to claim the saving until a matched baseline proves it.
+
+| Approach | What it optimizes | What it does not do |
+|---|---|---|
+| Token and cost dashboards | Visibility after spend | Change any routing decision, or prove that higher spend bought a better outcome |
+| Prompt caching and context trimming | The size of the call | Ask whether the call was needed at all |
+| Model routers | Which model answers | Complete work without a model, or gate the answer on verification |
+| FinOps and chargeback platforms | Attribution of cost | Authorize spend before it happens, or tie cost to a verified outcome |
+| **TokenOS** | **Whether a model is needed, then which route, then whether the result held** | **Claim a saving without a matched, quality-equal baseline that cost more** |
+
+Two consequences are visible in the measured run: **7 of 8 operations completed with zero model tokens**, because the work was routine enough for ordinary software; and the 97% figure is reported as a verified saving only because a paired all-AI baseline ran under the same contract and cost more. Remove either property and TokenOS reports nothing rather than an estimate dressed as a result.
+
 ## How routing works
 
 ```text
@@ -90,6 +104,18 @@ Examples of work that can stay local include file validation, schema checks, SHA
 
 The footer states the operating rule: **fail closed**. Incomplete evidence never becomes zero cost, and a cheaper rejected answer never becomes a saving.
 
+## Azure AI Foundry integration
+
+Foundry supplies the model intelligence. TokenOS supplies the decision about whether that intelligence is needed, what it may see, what it may cost, and whether its answer is acceptable.
+
+- **Two deployment tiers behind stable aliases.** Routes resolve to an efficient deployment or an advanced one, so routing logic never hard-codes a model name and a deployment can be swapped without touching the engine.
+- **Entra ID authentication by default.** The adapter uses `DefaultAzureCredential` with a bearer token provider rather than a static key, and the deployed Container App authenticates with a managed identity. An API-key mode exists for local development.
+- **Credentials never reach the browser.** One module imports the provider SDK. The web client has no model endpoint, no token, and no way to call Foundry directly.
+- **Provider usage is the source of truth for cost.** Measured cost comes from the tokens Foundry reports, priced against a pinned, versioned table whose version is recorded on every proof. If usage is incomplete, cost is reported as unavailable rather than assumed to be zero.
+- **One strict attempt per Authorized call.** The call is made once, with a reserved worst-case budget, a pinned output ceiling, and a recorded request ID. A response that exceeds the ceiling or lacks provider identity fails rather than silently becoming evidence.
+
+The judging build runs with the provider SDK absent from the image entirely, which is why the hosted walkthrough cannot spend money even by accident.
+
 ## Practical use cases
 
 ### Review documents against rules
@@ -113,7 +139,7 @@ A user can start with a single prompt or a recurring AI workflow. TokenOS identi
 1. Open the [live demo](https://tokenos-hack26.yellowwater-54592620.eastus.azurecontainerapps.io/). No sign-in.
 2. Choose **Review documents against rules**, select **Sample**, then **Load example inputs**.
 3. Run it. Watch Plan and Optimize decide routes *before* any model is considered.
-4. Authorise at **Protect**. Nothing executes until you do.
+4. Authorize at **Protect**. Nothing executes until you do.
 5. Read **Prove**: which operations finished without generative AI, why the one model call was permitted, and what it measured.
 6. Open **Reports**. The run appears under *Sample*, never *Measured*, because demonstration evidence cannot aggregate as production spend.
 
@@ -139,7 +165,7 @@ TokenOS distinguishes clearly between:
 
 This prevents a common failure mode in AI cost optimization: presenting an untested projection as a real saving.
 
-![TokenOS benefits. A measured sample walkthrough shows a verified saving of $0.0065 per run, with a matched all-AI baseline bar at about $0.0067 against a much shorter TokenOS governed route bar at $0.0002, plus figures of about 97 percent lower measured model spend, 7 of 8 operations using zero model tokens, and 1 Foundry model call. A second column explains how the benefit is created, and a footer row summarises the value to finance, engineering, governance, and product and users.](TokenOS-Benefits.png)
+![TokenOS benefits. A measured sample walkthrough shows a verified saving of $0.0065 per run, with a matched all-AI baseline bar at about $0.0067 against a much shorter TokenOS governed route bar at $0.0002, plus figures of about 97 percent lower measured model spend, 7 of 8 operations using zero model tokens, and 1 Foundry model call. A second column explains how the benefit is created, and a footer row summarizes the value to finance, engineering, governance, and product and users.](TokenOS-Benefits.png)
 
 **Figure 3. A worked example of the claim rules above.** The left panel is a single measured sample run in which both routes completed the same work and passed the same quality checks. The matched all-AI baseline cost about **$0.0067**; the TokenOS governed route cost **$0.0002**; the difference, **$0.0065 per run**, is reported as a verified saving precisely because the baseline ran, matched, and cost more. Seven of eight operations used zero model tokens and one Foundry call was authorized.
 
@@ -152,6 +178,24 @@ Two caveats are printed on the figure itself and are repeated here deliberately:
 TokenOS is a governance and measurement framework, not just a prompt optimizer or token dashboard. It supports registered application connections with approved server-side scopes; data decisions of allow, redact, minimize, require approval, or block; budget and model authorization controls; quality, safety, and evidence gates; application, team, environment, and cost-center attribution; real-time execution visibility; and audit-ready run proof.
 
 Enterprise reporting separates measured, projected, and sample values so forecasts cannot be mistaken for spend or verified savings.
+
+### Adoption path
+
+An enterprise does not have to rewrite an AI application to start. The practical sequence is:
+
+1. **Observe.** Point TokenOS at a recurring workflow or a single prompt and read the plan. Operations that ordinary software could complete are visible before anything is changed.
+2. **Govern one workflow.** Set a budget ceiling, quality gates, and a data scope. The run is Authorized explicitly, and every paid call records why it was allowed.
+3. **Prove it.** Run the matched all-AI baseline once. Either the governed route cost less at equal quality, in which case the saving is verified, or it did not, in which case nothing is claimed.
+4. **Report.** Cost per accepted outcome, local completion rate, escalation rate and verified savings accumulate per application, team, environment and cost centre.
+
+### What is not solved yet
+
+Stated plainly, because a governance tool that oversells itself is self-defeating:
+
+- Quality gates are strong where correctness is checkable (citations, amounts, schemas, tests, policy coverage) and weaker for open-ended generation, where an expected outcome or a supported evaluator is required. Unsupported gates block rather than auto-pass.
+- Verified savings need a paired baseline run, which costs real tokens. That is a deliberate price: the alternative is an unverifiable claim.
+- The shipped connectors are local stubs with approved scopes. Real integrations need registered server-side adapters.
+- Savings depend on how much of a workload is genuinely routine. A task that is irreducibly generative will route to a model, and TokenOS will say so rather than force a cheaper answer.
 
 ## Why TokenOS matters
 
