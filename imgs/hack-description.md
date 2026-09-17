@@ -2,13 +2,24 @@
 
 TokenOS is the operating system for AI work. It helps enterprises reduce avoidable AI spend while protecting the quality of the real business outcome.
 
+**The difference: TokenOS refuses to claim a saving it cannot prove.** Most cost tooling reports a projection. TokenOS runs the governed route *and* a matched all-AI baseline over identical inputs, contract, quality gates and price table, and reports a saving only when both pass and the baseline actually cost more.
+
+## Built, deployed, and measured
+
+| | |
+|---|---|
+| **Live demo** | [tokenos-hack26 on Azure Container Apps](https://tokenos-hack26.yellowwater-54592620.eastus.azurecontainerapps.io/) — public, no sign-in |
+| **Source** | [github.com/jvargh/hack26-tokenomics](https://github.com/jvargh/hack26-tokenomics) |
+| **Shipped** | 4 workflows, 7 governed phases, FastAPI + React, Azure AI Foundry, deployed on ACA |
+| **Verified result** | **97% lower measured model spend** on a matched-baseline run: $0.0067 all-AI vs **$0.0002** governed |
+| **Routing** | **7 of 8 operations used zero model tokens**; 1 efficient Foundry call authorised |
+| **Tested** | 381 automated tests (235 API/unit, 146 browser/visual), all passing |
+
+That 97% is a *verified* saving under the definition in [Honest savings proof](#honest-savings-proof), not a projection: a paired baseline ran, matched on every requirement, and cost more. The absolute figure is small because the sample workload is small — the transferable result is the **ratio**, produced by routing 7 of 8 operations away from the model entirely. Applied to 1,000 runs the same difference is $6.50, and TokenOS labels that figure **Projected at volume**, never a saving, because only one run was measured.
+
 The Tokenomics challenge asks us to move beyond reactive token caps and usage reports. Enterprises do not need AI usage to be restricted. They need AI work to be intentional, measurable, governed, and economically defensible. TokenOS addresses that gap by choosing the least-expensive safe route for every part of an AI task, then proving the outcome and its economics.
 
-Repository: [github.com/jvargh/hack26-tokenomics](https://github.com/jvargh/hack26-tokenomics)
-
-Link to test: [TokenOS ACA App](https://tokenos-hack26.yellowwater-54592620.eastus.azurecontainerapps.io/)
-
-The hosted link runs in a **simulated AI mode** so judges can walk the whole journey without incurring model cost. Every non-model step is genuine: uploads, parsing, duplicate detection, policy checks, arithmetic, test execution, routing, budget authorisation and the quality gates all run for real, and only the model reply is authored. The hosted build says so on every screen, and its artifacts carry `origin=simulated`. The measured figures quoted later in this document come from real Foundry runs, not from that demonstration.
+> **About the live link.** It runs in **simulated AI mode** so judges can walk the entire journey at zero model cost. Every non-model step is genuine — uploads, parsing, duplicate detection, policy checks, arithmetic, test execution, routing, budget authorisation and all quality gates. Only the model reply is authored, the build says so on every screen, and its artifacts carry `origin=simulated`. **The measured figures in this document come from real Azure AI Foundry runs, not from that demonstration.**
 
 ## The problem
 
@@ -95,6 +106,15 @@ TokenOS validates complete input coverage, plans throughput, and processes routi
 
 A user can start with a single prompt or a recurring AI workflow. TokenOS identifies repeated context, unnecessary tool definitions, cache-eligible prefixes, model-routing opportunities, retries, and quality risks. It can compare the current route with a governed route that preserves the required outcome.
 
+## See it in two minutes
+
+1. Open the [live demo](https://tokenos-hack26.yellowwater-54592620.eastus.azurecontainerapps.io/). No sign-in.
+2. Choose **Review documents against rules**, select **Sample**, then **Load example inputs**.
+3. Run it. Watch Plan and Optimize decide routes *before* any model is considered.
+4. Authorise at **Protect**. Nothing executes until you do.
+5. Read **Prove**: which operations finished without generative AI, why the one model call was permitted, and what it measured.
+6. Open **Reports**. The run appears under *Sample*, never *Measured* — demonstration evidence cannot aggregate as production spend.
+
 ## Core Tokenomics capabilities
 
 - **Cost-aware prompt optimization:** Identifies repeated instructions, irrelevant context, oversized history, output verbosity, and structured-output opportunities before a prompt is run.
@@ -135,6 +155,8 @@ Enterprise reporting separates measured, projected, and sample values so forecas
 
 The challenge is not to make enterprises afraid of AI spend. It is to make AI adoption sustainable because the business can see what value it receives for that spend.
 
+Anyone can make AI cheaper by making it worse. The hard problem is reducing spend while proving the outcome held — and then refusing to claim the win until the evidence supports it. That refusal is engineered into the system: a run with incomplete usage data never becomes zero cost, a cheaper answer that fails its quality gate never becomes a saving, and an estimate is never rendered as a measurement.
+
 **Local work first. AI used with purpose. Quality protected. Savings verified only after a matched baseline.**
 
-TokenOS helps enterprises use AI where it improves the result, not where it merely spends tokens.
+On the measured run above, that discipline produced a 97% lower model bill with the same verified outcome — and TokenOS would have reported nothing at all had the baseline not run, matched, and cost more.
