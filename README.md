@@ -12,6 +12,15 @@ is never treated as a verified saving.
 the starting point for setup, evaluation, and navigation. The
 [application README](tokenos/README.md) contains additional workflow background.
 
+> **Hosted demonstration:**
+> <https://tokenos-hack26.yellowwater-54592620.eastus.azurecontainerapps.io>
+>
+> Public, no sign-in. AI calls there are **simulated** so the walkthrough costs
+> nothing in model spend, and the hosted build says so on every screen. Local
+> runs are unaffected and still use real models when Foundry is configured. See
+> [`aca/README.md`](aca/README.md) for what is real, what is simulated, and the
+> known limitations.
+
 ![TokenOS AI Work Optimizer overview. A seven-phase band reads Describe, Plan, Optimize, Protect, Run, Verify, Prove. Beneath it a routing diagram shows a prompt or workflow entering local rules, retrieval and reuse, then an efficient Foundry model only if needed, with a branch that escalates only if required, ending in quality verification and measured cost and outcome proof.](imgs/TokenOS-main-slide.png)
 
 The seven phases run left to right. The routing diagram below them carries the
@@ -28,6 +37,7 @@ in quality verification and measured proof.
 - [Try the examples](#try-the-examples)
 - [How the application works](#how-the-application-works)
 - [Economics and claim strength](#economics-and-claim-strength)
+- [Hosted judge demonstration](#hosted-judge-demonstration)
 - [Optional Azure deployment](#optional-azure-deployment)
 - [Optional Microsoft Foundry configuration](#optional-microsoft-foundry-configuration)
 - [Configuration and local storage](#configuration-and-local-storage)
@@ -330,6 +340,42 @@ Two caveats printed on the figure apply to every number in it: these are
 **sample figures, not a customer claim**, and **zero model tokens does not mean
 zero total operating cost**.
 
+## Hosted judge demonstration
+
+<https://tokenos-hack26.yellowwater-54592620.eastus.azurecontainerapps.io>
+
+A public build that walks the complete journey **without calling any model
+provider**, so evaluating it costs nothing in model spend. It runs the same
+application in a third model mode, `simulated`, selected by
+`TOKENOS_MODEL_MODE`. Local and Foundry behaviour is unchanged.
+
+Everything except the model response is genuine. Uploads, parsing, hashing,
+duplicate detection, policy lookups, arithmetic, schema validation, secret
+scanning, test execution, routing decisions, budget authorisation, and the
+quality gates all run for real. Only the model reply is authored, and it is
+derived from the caller's own input so the real verification does real work
+against it.
+
+Three independent things would have to change before the hosted build could
+spend money: the mode, the Foundry endpoint variables (removed), and the
+presence of the provider SDK — which is **deliberately absent from the image**,
+so a client cannot be constructed even by mistake. The app identity holds
+`AcrPull` only.
+
+Simulated runs are marked in the data as well as on screen. Proofs carry
+`origin=simulated`, `sim-` prefixed identifiers, and a simulated measurement
+label, so a downloaded artifact states its own provenance. They classify as
+sample rather than measured evidence, so they can never aggregate as production
+spend.
+
+Deliverables live in [`aca/`](aca/): the image, infrastructure, deploy and
+rollback scripts, a browser verification script, and a judge walkthrough with
+the **known limitations** — most importantly that saved runs do not survive
+container replacement. The simulator itself is part of the application at
+[`simulator.py`](tokenos/services/tokenos-api/tokenos_api/simulator.py), with
+tests in
+[`test_simulated_mode.py`](tokenos/services/tokenos-api/tests/test_simulated_mode.py).
+
 ## Optional Azure deployment
 
 The Azure Developer CLI project configuration is
@@ -467,7 +513,7 @@ for authentication, pricing, safeguard refresh, and unavailable states.
 
 | Setting | Purpose |
 | --- | --- |
-| `TOKENOS_MODEL_MODE` | Select `local` or configured Foundry execution. |
+| `TOKENOS_MODEL_MODE` | Select `local`, configured `foundry` execution, or `simulated` for a cost-free demonstration. An unrecognised value stops startup rather than being guessed at. |
 | `VITE_TOKENOS_API_BASE` | UI API URL; defaults to `http://localhost:8000`. Not a place for secrets. |
 | `TOKENOS_CORS_ORIGINS` | Comma-separated allowed browser origins; defaults cover localhost/127.0.0.1 on port 5173. |
 | `TOKENOS_STORAGE_ROOT` | Local runtime storage directory; defaults to `.tokenos\runtime` under the user's home directory. |
@@ -558,7 +604,9 @@ they are not pixel-baseline comparisons.
 Coverage includes explicit authorization, example defaults, mode switching,
 uploads, SSE/fallback behavior, quality failures, pricing, baseline eligibility,
 and compatibility with the original workflows. Automated provider-positive cases
-use isolated test doubles, not a simulated production execution mode.
+use isolated test doubles rather than the `simulated` mode: that mode exists for
+the hosted demonstration, and a test that proved something about the simulator
+would not prove anything about a real provider call.
 
 For **recorded results**, see the
 [prompt/workflow implementation report](tokenos/PROMPT-OPTIMIZATION-REPORT.md).
@@ -569,6 +617,14 @@ Results there are snapshots of executed validation, not promises about a future 
 ```text
 .
 |-- README.md                       This entry point
+|-- aca/                            Hosted judge demonstration (simulated AI)
+|   |-- Dockerfile                  Judge image; omits the provider SDK on purpose
+|   |-- .dockerignore               Build-context allowlist
+|   |-- main.bicep                  Declarative form of the deployed configuration
+|   |-- deploy.ps1                  Build, roll out, verify
+|   |-- rollback.ps1                Restore the real-model image
+|   |-- verify_deployed.py          Browser verification of the judge journey
+|   `-- README.md                   Judge walkthrough and limitations
 |-- docs/                           Product and implementation specifications
 |-- imgs/                           Diagrams referenced by this README
 |-- infra/                          Azure Developer CLI and Bicep deployment

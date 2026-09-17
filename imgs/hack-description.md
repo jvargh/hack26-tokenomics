@@ -8,6 +8,8 @@ Repository: [github.com/jvargh/hack26-tokenomics](https://github.com/jvargh/hack
 
 Link to test: [TokenOS ACA App](https://tokenos-hack26.yellowwater-54592620.eastus.azurecontainerapps.io/)
 
+The hosted link runs in a **simulated AI mode** so judges can walk the whole journey without incurring model cost. Every non-model step is genuine: uploads, parsing, duplicate detection, policy checks, arithmetic, test execution, routing, budget authorisation and the quality gates all run for real, and only the model reply is authored. The hosted build says so on every screen, and its artifacts carry `origin=simulated`. The measured figures quoted later in this document come from real Foundry runs, not from that demonstration.
+
 ## The problem
 
 Most AI applications treat a user request as a single model call. In practice, one request may contain routine validation, retrieval, duplicate detection, calculations, policy checks, code tests, formatting, retries, reasoning, and response generation.

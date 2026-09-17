@@ -247,7 +247,9 @@ fails — the reviewer never reports a clean result it did not actually establis
   permitted to return. It does not connect TokenOS to an Azure subscription, and no provider
   credentials reach the browser.
 - **Use sample data** — bundled input pushed through the *same* upload, extraction, and analysis
-  path. Results are labelled **Measured sample run**, never Simulated.
+  path. Results are labelled **Measured sample run**, never Simulated. (The exception is the
+  hosted judge demonstration, which runs with `TOKENOS_MODEL_MODE=simulated` and labels its runs
+  **Simulated demonstration run**. Local and Foundry deployments are unaffected.)
 
 ### Registered applications
 
