@@ -4,12 +4,14 @@ TokenOS is the operating system for AI work. It helps enterprises reduce avoidab
 
 **The difference: TokenOS refuses to claim a saving it cannot prove.** Most cost tooling reports a projection. TokenOS runs the governed route *and* a matched all-AI baseline over identical inputs, contract, quality gates and price table, and reports a saving only when both pass and the baseline actually cost more.
 
+Repository: [github.com/jvargh/hack26-tokenomics](https://github.com/jvargh/hack26-tokenomics)
+
+Link to test: [TokenOS ACA App](https://tokenos-hack26.yellowwater-54592620.eastus.azurecontainerapps.io/) — public, no sign-in
+
 ## Built, deployed, and measured
 
 | | |
 |---|---|
-| **Live demo** | [tokenos-hack26 on Azure Container Apps](https://tokenos-hack26.yellowwater-54592620.eastus.azurecontainerapps.io/) — public, no sign-in |
-| **Source** | [github.com/jvargh/hack26-tokenomics](https://github.com/jvargh/hack26-tokenomics) |
 | **Shipped** | 4 workflows, 7 governed phases, FastAPI + React, Azure AI Foundry, deployed on ACA |
 | **Verified result** | **97% lower measured model spend** on a matched-baseline run: $0.0067 all-AI vs **$0.0002** governed |
 | **Routing** | **7 of 8 operations used zero model tokens**; 1 efficient Foundry call authorised |
