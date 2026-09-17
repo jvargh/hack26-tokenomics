@@ -358,7 +358,7 @@ against it.
 
 Three independent things would have to change before the hosted build could
 spend money: the mode, the Foundry endpoint variables (removed), and the
-presence of the provider SDK — which is **deliberately absent from the image**,
+presence of the provider SDK, which is **deliberately absent from the image**,
 so a client cannot be constructed even by mistake. The app identity holds
 `AcrPull` only.
 
@@ -370,7 +370,7 @@ spend.
 
 Deliverables live in [`aca/`](aca/): the image, infrastructure, deploy and
 rollback scripts, a browser verification script, and a judge walkthrough with
-the **known limitations** — most importantly that saved runs do not survive
+the **known limitations**, most importantly that saved runs do not survive
 container replacement. The simulator itself is part of the application at
 [`simulator.py`](tokenos/services/tokenos-api/tokenos_api/simulator.py), with
 tests in
@@ -431,7 +431,7 @@ The script:
   required and the build host has the network access the local Docker build
   lacks (see [`tokenos/vendor-wheels/README.md`](tokenos/vendor-wheels/README.md));
 - deploys by image **digest** rather than tag, so the revision records exactly
-  what shipped — a tag can later be moved, a digest cannot;
+  what shipped: a tag can later be moved, a digest cannot;
 - waits for the new revision to reach a running state and then verifies
   `/health`;
 - finishes by running the read-only post-deploy check in

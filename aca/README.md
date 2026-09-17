@@ -47,7 +47,7 @@ real. A simulated answer that cannot satisfy a real gate fails it honestly.
    This is required: the simulator answers the bundled examples only.
 
 4. **Run it.** Watch the seven phases. The Plan and Optimize phases are entirely
-   local — no model is involved even in a real deployment.
+   local: no model is involved even in a real deployment.
 
 5. **Authorise the run** at the Protect phase. Nothing executes until you do.
 
@@ -101,7 +101,7 @@ Pass `-Yes` to skip the prompt on a repeat run.
 
 **Update behaviour.** `deploy.ps1` builds a new image and points the existing
 Container App at it by digest. The app runs in single-revision mode, so the old
-revision is replaced rather than run alongside. Expect roughly 30–60 seconds
+revision is replaced rather than run alongside. Expect roughly 30 to 60 seconds
 where the previous replica is draining and the new one is starting.
 
 **Rollback.**

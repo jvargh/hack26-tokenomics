@@ -6,7 +6,7 @@ TokenOS is the operating system for AI work. It helps enterprises reduce avoidab
 
 Repository: [github.com/jvargh/hack26-tokenomics](https://github.com/jvargh/hack26-tokenomics)
 
-Link to test: [TokenOS ACA App](https://tokenos-hack26.yellowwater-54592620.eastus.azurecontainerapps.io/) — public, no sign-in
+Link to test: [TokenOS ACA App](https://tokenos-hack26.yellowwater-54592620.eastus.azurecontainerapps.io/) (public, no sign-in)
 
 ## Built, deployed, and measured
 
@@ -17,11 +17,11 @@ Link to test: [TokenOS ACA App](https://tokenos-hack26.yellowwater-54592620.east
 | **Routing** | **7 of 8 operations used zero model tokens**; 1 efficient Foundry call authorised |
 | **Tested** | 381 automated tests (235 API/unit, 146 browser/visual), all passing |
 
-That 97% is a *verified* saving under the definition in [Honest savings proof](#honest-savings-proof), not a projection: a paired baseline ran, matched on every requirement, and cost more. The absolute figure is small because the sample workload is small — the transferable result is the **ratio**, produced by routing 7 of 8 operations away from the model entirely. Applied to 1,000 runs the same difference is $6.50, and TokenOS labels that figure **Projected at volume**, never a saving, because only one run was measured.
+That 97% is a *verified* saving under the definition in [Honest savings proof](#honest-savings-proof), not a projection: a paired baseline ran, matched on every requirement, and cost more. The absolute figure is small because the sample workload is small. The transferable result is the **ratio**, produced by routing 7 of 8 operations away from the model entirely. Applied to 1,000 runs the same difference is $6.50, and TokenOS labels that figure **Projected at volume**, never a saving, because only one run was measured.
 
 The Tokenomics challenge asks us to move beyond reactive token caps and usage reports. Enterprises do not need AI usage to be restricted. They need AI work to be intentional, measurable, governed, and economically defensible. TokenOS addresses that gap by choosing the least-expensive safe route for every part of an AI task, then proving the outcome and its economics.
 
-> **About the live link.** It runs in **simulated AI mode** so judges can walk the entire journey at zero model cost. Every non-model step is genuine — uploads, parsing, duplicate detection, policy checks, arithmetic, test execution, routing, budget authorisation and all quality gates. Only the model reply is authored, the build says so on every screen, and its artifacts carry `origin=simulated`. **The measured figures in this document come from real Azure AI Foundry runs, not from that demonstration.**
+> **About the live link.** It runs in **simulated AI mode** so judges can walk the entire journey at zero model cost. Every non-model step is genuine: uploads, parsing, duplicate detection, policy checks, arithmetic, test execution, routing, budget authorisation and all quality gates. Only the model reply is authored, the build says so on every screen, and its artifacts carry `origin=simulated`. **The measured figures in this document come from real Azure AI Foundry runs, not from that demonstration.**
 
 ## The problem
 
@@ -48,7 +48,7 @@ TokenOS runs through seven visible phases:
 
 ![TokenOS AI Work Optimizer overview. A seven-phase band reads Describe, Plan, Optimize, Protect, Run, Verify, Prove. Below it a routing diagram shows a prompt or workflow entering local rules, retrieval and reuse, then an efficient Foundry model only if needed, with an escalation branch used only if required, ending in quality verification and measured cost and outcome proof.](TokenOS-main-slide.png)
 
-**Figure 1 — The seven-phase journey and the routing model.** The upper band shows the phases in order. The diagram beneath it is the part that carries the argument: a prompt or workflow enters at the left, local rules, retrieval and reuse resolve everything they can, and an efficient Foundry model is called only if unresolved work remains. The orange branch, *escalate only if required*, is taken only when the efficient route fails verification, so an advanced model is never the starting point. Every path ends in quality verification and measured cost and outcome proof. The four cards name the shipped entry points, each with the condition under which AI is permitted at all. The closing principles state the rule the whole design follows: local work first, AI used with purpose, quality protected, and verified savings only after a matched baseline.
+**Figure 1. The seven-phase journey and the routing model.** The upper band shows the phases in order. The diagram beneath it is the part that carries the argument: a prompt or workflow enters at the left, local rules, retrieval and reuse resolve everything they can, and an efficient Foundry model is called only if unresolved work remains. The orange branch, *escalate only if required*, is taken only when the efficient route fails verification, so an advanced model is never the starting point. Every path ends in quality verification and measured cost and outcome proof. The four cards name the shipped entry points, each with the condition under which AI is permitted at all. The closing principles state the rule the whole design follows: local work first, AI used with purpose, quality protected, and verified savings only after a matched baseline.
 
 1. **Describe**: Capture the prompt or workflow, required outcome, quality requirements, budget, deadline, and allowed data scope.
 2. **Plan**: Break the request into discrete operations so routine work is visible before a model is called.
@@ -82,7 +82,7 @@ Examples of work that can stay local include file validation, schema checks, SHA
 
 ![TokenOS engine deep dive. A request path runs from the React web client through FastAPI to a dispatching runs endpoint and server-owned run state. Panels detail the API surface, two independent engines behind one API, the Foundry spend boundary, a durable SQLite proof gate, the conditions under which two runs are comparable, and the comparison rule that yields a verified saving.](TokenOS-Engine-Deep-Dive.png)
 
-**Figure 2 — API, execution paths, and the proof contract.** One FastAPI surface dispatches both the fixed workflows and user-supplied optimization runs while preserving a single evidence model. Three things in this diagram matter most:
+**Figure 2. API, execution paths, and the proof contract.** One FastAPI surface dispatches both the fixed workflows and user-supplied optimization runs while preserving a single evidence model. Three things in this diagram matter most:
 
 - **Two independent engines behind one API.** The classic engine runs the three fixed workflows; the optimization engine runs the describe-to-execute sequence. Both are driven by a server-authorized state machine (`described → planned → optimized → authorized`, then `running → completed | failed`). The server owns that state and returns `409` with the required and current state, so the browser cannot skip a phase or authorize spend out of order.
 - **A single spend boundary.** `_call_model()` is the only path that can spend. It validates contract, tenant, scope and authorization, reserves the worst-case cost *before* calling Foundry, allows a single strict attempt, and records tokens, request ID, latency and an exact `Decimal` cost. `modeladapter.py` alone imports the provider SDK, and credentials never leave the server.
@@ -115,7 +115,7 @@ A user can start with a single prompt or a recurring AI workflow. TokenOS identi
 3. Run it. Watch Plan and Optimize decide routes *before* any model is considered.
 4. Authorise at **Protect**. Nothing executes until you do.
 5. Read **Prove**: which operations finished without generative AI, why the one model call was permitted, and what it measured.
-6. Open **Reports**. The run appears under *Sample*, never *Measured* — demonstration evidence cannot aggregate as production spend.
+6. Open **Reports**. The run appears under *Sample*, never *Measured*, because demonstration evidence cannot aggregate as production spend.
 
 ## Core Tokenomics capabilities
 
@@ -141,9 +141,9 @@ This prevents a common failure mode in AI cost optimization: presenting an untes
 
 ![TokenOS benefits. A measured sample walkthrough shows a verified saving of $0.0065 per run, with a matched all-AI baseline bar at about $0.0067 against a much shorter TokenOS governed route bar at $0.0002, plus figures of about 97 percent lower measured model spend, 7 of 8 operations using zero model tokens, and 1 Foundry model call. A second column explains how the benefit is created, and a footer row summarises the value to finance, engineering, governance, and product and users.](TokenOS-Benefits.png)
 
-**Figure 3 — A worked example of the claim rules above.** The left panel is a single measured sample run in which both routes completed the same work and passed the same quality checks. The matched all-AI baseline cost about **$0.0067**; the TokenOS governed route cost **$0.0002**; the difference, **$0.0065 per run**, is reported as a verified saving precisely because the baseline ran, matched, and cost more. Seven of eight operations used zero model tokens and one Foundry call was authorized.
+**Figure 3. A worked example of the claim rules above.** The left panel is a single measured sample run in which both routes completed the same work and passed the same quality checks. The matched all-AI baseline cost about **$0.0067**; the TokenOS governed route cost **$0.0002**; the difference, **$0.0065 per run**, is reported as a verified saving precisely because the baseline ran, matched, and cost more. Seven of eight operations used zero model tokens and one Foundry call was authorized.
 
-The right column explains where that result comes from: eliminating unnecessary model spend through local rules, approved retrieval and reuse; controlling every paid call through a hard spend ceiling, minimal context and efficient-first routing enforced before execution; and proving the saving without lowering quality through provider-measured usage, pinned prices and a quality-matched baseline. The bottom row states what each audience gets — defensible cost per accepted outcome for finance, a reason and cost record for every route for engineering, budget control before spend and audit after for governance, and lower cost without accepting worse results for product and users.
+The right column explains where that result comes from: eliminating unnecessary model spend through local rules, approved retrieval and reuse; controlling every paid call through a hard spend ceiling, minimal context and efficient-first routing enforced before execution; and proving the saving without lowering quality through provider-measured usage, pinned prices and a quality-matched baseline. The bottom row states what each audience gets: defensible cost per accepted outcome for finance, a reason and cost record for every route for engineering, budget control before spend and audit after for governance, and lower cost without accepting worse results for product and users.
 
 Two caveats are printed on the figure itself and are repeated here deliberately: this is **sample evidence, not a customer claim**, and **zero model tokens does not mean zero total operating cost**. Local execution still consumes compute and engineering time.
 
@@ -157,8 +157,8 @@ Enterprise reporting separates measured, projected, and sample values so forecas
 
 The challenge is not to make enterprises afraid of AI spend. It is to make AI adoption sustainable because the business can see what value it receives for that spend.
 
-Anyone can make AI cheaper by making it worse. The hard problem is reducing spend while proving the outcome held — and then refusing to claim the win until the evidence supports it. That refusal is engineered into the system: a run with incomplete usage data never becomes zero cost, a cheaper answer that fails its quality gate never becomes a saving, and an estimate is never rendered as a measurement.
+Anyone can make AI cheaper by making it worse. The hard problem is reducing spend while proving the outcome held, and then refusing to claim the win until the evidence supports it. That refusal is engineered into the system: a run with incomplete usage data never becomes zero cost, a cheaper answer that fails its quality gate never becomes a saving, and an estimate is never rendered as a measurement.
 
 **Local work first. AI used with purpose. Quality protected. Savings verified only after a matched baseline.**
 
-On the measured run above, that discipline produced a 97% lower model bill with the same verified outcome — and TokenOS would have reported nothing at all had the baseline not run, matched, and cost more.
+On the measured run above, that discipline produced a 97% lower model bill with the same verified outcome, and TokenOS would have reported nothing at all had the baseline not run, matched, and cost more.
