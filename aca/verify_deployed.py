@@ -65,10 +65,28 @@ with sync_playwright() as playwright:
     banner = page.get_by_test_id("simulation-banner")
     check("banner visible", banner.is_visible())
     text = banner.inner_text() if banner.count() else ""
-    evidence["banner"] = text
+    evidence["banner"] = " ".join(text.split())
     for phrase in ("JUDGE DEMO", "SIMULATED AI", "simulated for judging purposes",
                    "No requests are sent to model providers", "Azure hosting costs still apply"):
         check(f"banner states {phrase!r}", phrase.lower() in text.lower())
+
+    # Measured from geometry, not from innerText. The banner is a flex
+    # container, so its children are blockified and innerText reports them on
+    # separate lines even when they sit side by side on one visual row.
+    banner_lines = page.evaluate(
+        """() => {
+          const node = document.querySelector('[data-testid="simulation-banner"]');
+          if (!node) return -1;
+          const style = getComputedStyle(node);
+          const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+          const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.4;
+          return Math.round((node.getBoundingClientRect().height - padding) / lineHeight);
+        }"""
+    )
+    evidence["banner_lines"] = banner_lines
+    check("banner is one line", banner_lines == 1, f"rendered {banner_lines} lines")
+    check("banner uses no dash characters",
+          "\u2014" not in text and "\u2013" not in text)
 
     # ------------------------------------------------- load example -> run
     print("\nLoad example then run")

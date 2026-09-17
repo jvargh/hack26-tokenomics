@@ -3714,29 +3714,33 @@ pre {
 
 /* ------------------------------------------------- judge simulation banner */
 
-/* Shown only when the server reports simulated mode. Deliberately high contrast
-   and not dismissible so the context cannot be lost while reading figures. */
+/* Shown only when the server reports simulated mode. Laid out as a single row
+   so it states its message without consuming three lines of vertical space
+   above the application. It still wraps on narrow viewports rather than
+   clipping: an unreadable notice would defeat the point of having one. */
 .simulation-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
   border: 1px solid color-mix(in srgb, var(--tos-warn) 55%, var(--tos-border));
   border-left-width: 5px;
   border-left-color: var(--tos-warn);
   border-radius: var(--tos-radius-field);
   background: color-mix(in srgb, var(--tos-warn) 12%, var(--tos-surface));
-  padding: 12px 16px;
+  padding: 9px 14px;
   margin-bottom: 14px;
 }
 
 .simulation-banner-title {
-  margin: 0;
   font-weight: 800;
   letter-spacing: 0.04em;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--tos-warn);
+  white-space: nowrap;
 }
 
 .simulation-banner-body {
-  margin: 4px 0 0;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--tos-text);
-  max-width: 85ch;
 }

@@ -17,12 +17,11 @@ export function SimulationBanner() {
 
   return (
     <aside className="simulation-banner" role="note" data-testid="simulation-banner">
-      <p className="simulation-banner-title">JUDGE DEMO — SIMULATED AI</p>
-      <p className="simulation-banner-body">
-        AI calls are simulated for judging purposes to demonstrate the overall
-        functionality without incurring model costs. No requests are sent to model
+      <span className="simulation-banner-title">JUDGE DEMO: SIMULATED AI</span>
+      <span className="simulation-banner-body">
+        AI calls are simulated for judging purposes. No requests are sent to model
         providers. Azure hosting costs still apply.
-      </p>
+      </span>
     </aside>
   );
 }
