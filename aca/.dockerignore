@@ -1,0 +1,56 @@
+# Allowlist, not a denylist.
+#
+# NOTE ON HOW THIS IS USED: `az acr build` reads .dockerignore from the CONTEXT
+# ROOT, not from beside the Dockerfile. Because the context root is the
+# repository, this file is NOT consulted during the scripted ACR build.
+# aca/deploy.ps1 instead stages a temporary directory containing only the
+# allowlisted paths, which is stricter: anything not copied cannot reach the
+# image at all.
+#
+# This file still matters for a local `docker build -f aca/Dockerfile .` run
+# from the aca directory, and it documents the intended boundary in one place.
+#
+# A denylist fails silently: anything a contributor adds later is included by
+# default, and the first sign of a mistake is a secret or a local run history
+# shipped in a public image. This denies everything, then re-admits only the
+# paths the build reads.
+#
+# Docker evaluates these in order, so every re-admission must come after the
+# initial deny, and each directory on a path must be re-admitted before its
+# contents can be.
+
+# Deny everything.
+**
+
+# Web application source, needed by the node build stage.
+!tokenos
+!tokenos/apps
+!tokenos/apps/web
+!tokenos/apps/web/**
+
+# API source, needed by the runtime stage.
+!tokenos/services
+!tokenos/services/tokenos-api
+!tokenos/services/tokenos-api/**
+
+# Re-deny anything that must never reach a hosted image, even though it sits
+# under a path allowed above.
+tokenos/apps/web/node_modules/**
+tokenos/apps/web/dist/**
+tokenos/services/tokenos-api/tests/**
+tokenos/services/tokenos-api/.venv/**
+tokenos/services/tokenos-api/.pytest_cache/**
+tokenos/services/tokenos-api/static/**
+**/__pycache__/**
+**/*.pyc
+**/*.sqlite3
+**/*.sqlite3-journal
+**/*.log
+**/.env
+**/.env.*
+**/*.bak
+
+# The production image vendors these wheels to install the Foundry extra. The
+# judge image must not have the provider SDK available at all, so they are
+# excluded from the context rather than merely left uninstalled.
+tokenos/vendor-wheels/**

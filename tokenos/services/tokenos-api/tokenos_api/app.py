@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
 from .config import settings
+from .session import SessionScopeMiddleware, current_session
 from .baseline import run_baseline
 from .connectors import ConnectionError as ConnectedAppError
 from .connectors import list_applications, resolve_connection
@@ -523,9 +524,21 @@ async def get_comparison(run_id: str) -> dict:
 @api.get("/runs")
 async def list_runs() -> dict:
     optimization_runs = [{"run_id": run["runId"], "workflow_id": run["workflow"], "status": run["status"],
-                          "created_at": run["createdAt"], "proof": run["proof"], "optimization": optimization_state(run)}
+                          "created_at": run["createdAt"], "proof": run["proof"], "optimization": optimization_state(run),
+                          "session": run.get("_session", "")}
                          for run in optimization_store.history()]
-    return {"runs": sorted(run_store.history() + optimization_runs, key=lambda run: run["created_at"], reverse=True)}
+    runs = sorted(run_store.history() + optimization_runs, key=lambda run: run["created_at"], reverse=True)
+
+    # On the shared hosted demonstration a visitor sees only their own runs, so
+    # one judge's history does not appear in another's. Outside simulated mode
+    # `current_session()` is empty and the full history is returned exactly as
+    # before.
+    session = current_session()
+    if session:
+        runs = [run for run in runs if run.get("session") == session]
+    for run in runs:
+        run.pop("session", None)
+    return {"runs": runs}
 
 
 @api.delete("/runs/{run_id}")
@@ -698,17 +711,25 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=["Last-Event-ID"],
     )
+    # Scopes what a visitor is shown on the shared hosted demonstration. No-ops
+    # outside simulated mode, so local and Foundry behaviour is unchanged.
+    app.add_middleware(SessionScopeMiddleware)
 
     @app.get("/health")
     async def health() -> dict:
-        foundry = model_available()
+        # Report the configured mode rather than deriving it. `model_available()`
+        # answers "can a model route run at all", which is true in simulated
+        # mode, so deriving the mode from it claimed Foundry was available when
+        # no provider existed. Behaviour for local and foundry is unchanged;
+        # simulated is now reported as itself.
+        configured = settings.foundry_configured
         return {
             "status": "ready",
             "version": settings.version,
-            "modelMode": "foundry" if foundry else "local",
-            "foundryAvailable": foundry,
-            "efficientDeployment": settings.foundry_efficient_deployment if foundry else None,
-            "advancedDeployment": settings.foundry_advanced_deployment if foundry else None,
+            "modelMode": settings.model_mode,
+            "foundryAvailable": configured,
+            "efficientDeployment": settings.foundry_efficient_deployment if configured else None,
+            "advancedDeployment": settings.foundry_advanced_deployment if configured else None,
             "workflows": [handler.workflow_id for handler in all_workflows()],
         }
 

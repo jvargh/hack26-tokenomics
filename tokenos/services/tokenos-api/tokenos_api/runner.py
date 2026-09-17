@@ -14,6 +14,7 @@ from .comparison import contract, test_set_id
 from .config import settings
 from .modeladapter import model_available
 from .pricing import price_source
+from .simulator import SIMULATION_ORIGIN
 from .storage.runs import Plan, Run
 from .storage.ledger import ledger_store
 from .storage.uploads import upload_store
@@ -351,9 +352,14 @@ def build_proof(run: Run, plan: Plan, context: RunContext, outcome, duration_ms:
         "created_at": run.created_at,
         "finished_at": datetime.now(timezone.utc).isoformat(),
         "input_evidence": request.get("input_source", "upload"),
+        # Stated on the proof itself so a downloaded artifact declares its own
+        # provenance once separated from the page that produced it.
+        "origin": SIMULATION_ORIGIN if settings.simulated else "live",
         "measurement": run.metrics["measurement"],
         "measurement_label": (
-            "Measured sample run"
+            "Simulated demonstration run"
+            if settings.simulated
+            else "Measured sample run"
             if run.metrics["measurement"] == "measured_sample_run"
             else "Measured run, local connector stub"
             if run.metrics["measurement"] == "measured_connected_stub"

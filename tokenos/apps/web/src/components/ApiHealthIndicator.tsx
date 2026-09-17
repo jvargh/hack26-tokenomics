@@ -5,15 +5,18 @@ import { useRun } from "../state/runContext";
 export function ApiHealthIndicator({ onConfigure }: { onConfigure?: () => void }) {
   const { health, refreshHealth } = useRun();
   const endpointLabel = API_BASE || "Same origin";
+  const simulated = health.state === "ready" && health.health.modelMode === "simulated";
 
   const label =
     health.state === "checking"
       ? "Checking TokenOS API"
       : health.state === "offline"
         ? "TokenOS API offline"
-        : health.health.foundryAvailable
-          ? "TokenOS API ready · Foundry connected"
-          : "TokenOS API ready · Foundry not configured";
+        : simulated
+          ? "TokenOS API ready · Simulated AI"
+          : health.health.foundryAvailable
+            ? "TokenOS API ready · Foundry connected"
+            : "TokenOS API ready · Foundry not configured";
 
   const tone =
     health.state === "checking" ? "is-checking" : health.state === "offline" ? "is-offline" : "is-ready";
@@ -29,7 +32,11 @@ export function ApiHealthIndicator({ onConfigure }: { onConfigure?: () => void }
           {endpointLabel} · v{health.health.version} ·{" "}
           {/* Same line in every workflow. Deployment bindings are a server
               concern, and the UI refers to models by alias, not by raw name. */}
-          {health.health.foundryAvailable ? (
+          {simulated ? (
+            // No Foundry configuration link here: offering one would invite a
+            // judge to try to connect a provider the hosted build cannot use.
+            <span>Model routes are answered by the built-in simulator.</span>
+          ) : health.health.foundryAvailable ? (
             <span>Model aliases and pricing are configured on the server.</span>
           ) : (
             <span

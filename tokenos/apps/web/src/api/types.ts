@@ -3,7 +3,7 @@
 export interface HealthResponse {
   status: string;
   version: string;
-  modelMode: "local" | "foundry";
+  modelMode: "local" | "foundry" | "simulated";
   foundryAvailable: boolean;
   efficientDeployment: string | null;
   advancedDeployment: string | null;

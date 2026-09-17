@@ -21,6 +21,28 @@ except ImportError:
 SERVICE_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = SERVICE_ROOT.parent.parent
 
+# `local`     - no model routes; the API reports unavailability instead of inventing output.
+# `foundry`   - real Microsoft Foundry deployments and real spend.
+# `simulated` - authored, deterministic stand-in responses for cost-free demonstration.
+#               Never contacts a provider and never falls back to `foundry`.
+MODEL_MODES = ("local", "foundry", "simulated")
+
+
+def _model_mode() -> str:
+    """Resolves the model mode, rejecting anything unrecognised.
+
+    An unknown value must not be silently coerced. Treating a typo as `local`
+    would quietly disable AI routes, and treating it as permissive would be
+    worse, so startup fails with the offending value named.
+    """
+    mode = os.getenv("TOKENOS_MODEL_MODE", "local").strip().lower()
+    if mode not in MODEL_MODES:
+        raise ValueError(
+            f"TOKENOS_MODEL_MODE={mode!r} is not recognised. "
+            f"Use one of: {', '.join(MODEL_MODES)}."
+        )
+    return mode
+
 
 def _int(name: str, default: int) -> int:
     try:
@@ -41,7 +63,7 @@ class Settings:
     version: str = "0.1.0"
 
     # Model routing
-    model_mode: str = field(default_factory=lambda: os.getenv("TOKENOS_MODEL_MODE", "local"))
+    model_mode: str = field(default_factory=_model_mode)
     foundry_base_url: str = field(default_factory=lambda: os.getenv("TOKENOS_FOUNDRY_BASE_URL", ""))
     foundry_efficient_deployment: str = field(
         default_factory=lambda: os.getenv("TOKENOS_FOUNDRY_EFFICIENT_DEPLOYMENT", "tokenos-efficient")
@@ -121,7 +143,15 @@ class Settings:
     )
 
     @property
+    def simulated(self) -> bool:
+        """True when model routes are answered by the authored simulator."""
+        return self.model_mode == "simulated"
+
+    @property
     def foundry_configured(self) -> bool:
+        # Deliberately excludes `simulated`. This property gates credential
+        # acquisition and client construction, so simulated mode must never
+        # satisfy it, whatever Foundry variables happen to be present.
         if self.model_mode != "foundry" or not self.foundry_base_url:
             return False
         if self.foundry_auth_mode == "api_key":

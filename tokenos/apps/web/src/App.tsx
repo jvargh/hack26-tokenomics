@@ -3,6 +3,7 @@ import { AppHeader } from "./components/AppHeader";
 import { PhaseStepper } from "./components/PhaseStepper";
 import { HistoryDrawer } from "./components/HistoryDrawer";
 import { FoundryConfigModal } from "./components/FoundryConfigModal";
+import { SimulationBanner } from "./components/SimulationBanner";
 import { DescribePhase } from "./phases/DescribePhase";
 import { PlanPhase } from "./phases/PlanPhase";
 import { OptimizePhase } from "./phases/OptimizePhase";
@@ -76,6 +77,7 @@ function Shell() {
 
   return (
     <div className="app">
+      <SimulationBanner />
       <AppHeader
         onOpenHistory={() => setHistoryOpen(true)}
         onOpenFoundryConfig={() => setFoundryModalOpen(true)}

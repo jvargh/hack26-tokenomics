@@ -210,7 +210,13 @@ def get_model_adapter():
     global _active_adapter
     if _active_adapter is not None:
         return _active_adapter
-    if settings.foundry_configured:
+    if settings.simulated:
+        # Checked before `foundry_configured` so there is no path from simulated
+        # mode to real inference, whatever Foundry variables are present.
+        from .simulator import SimulatedModelAdapter
+
+        _active_adapter = SimulatedModelAdapter()
+    elif settings.foundry_configured:
         _active_adapter = FoundryModelAdapter()
     else:
         _active_adapter = UnavailableModelAdapter()
@@ -228,4 +234,10 @@ model_adapter = ModelAdapterProxy()
 
 
 def model_available() -> bool:
-    return settings.foundry_configured
+    """True when a model route can be answered at all.
+
+    Includes simulated mode: the workflows must take their AI branches for the
+    demonstration to show routing decisions. It does not imply that a provider
+    is reachable, which is what `settings.foundry_configured` reports.
+    """
+    return settings.simulated or settings.foundry_configured

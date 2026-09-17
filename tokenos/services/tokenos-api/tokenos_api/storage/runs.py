@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from ..session import current_session
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -44,6 +46,10 @@ class Run:
     error: dict | None = None
     approval: dict | None = None
     stop_requested: bool = False
+    # Opaque per-visitor identifier on the shared hosted demonstration, used to
+    # scope what each visitor is shown. Empty in local and Foundry deployments,
+    # where the full history is returned as before.
+    session: str = ""
     _sequence: int = 0
     _subscribers: list[asyncio.Queue] = field(default_factory=list)
     _approval_gate: asyncio.Event = field(default_factory=asyncio.Event)
@@ -157,7 +163,8 @@ class RunStore:
     def create_run(self, plan: Plan, idempotency_key: str | None) -> tuple[Run, bool]:
         if idempotency_key and idempotency_key in self._idempotency:
             return self._runs[self._idempotency[idempotency_key]], False
-        run = Run(run_id=f"run-{secrets.token_hex(5)}", plan_id=plan.plan_id, workflow_id=plan.workflow_id)
+        run = Run(run_id=f"run-{secrets.token_hex(5)}", plan_id=plan.plan_id,
+                  workflow_id=plan.workflow_id, session=current_session())
         self._runs[run.run_id] = run
         if idempotency_key:
             self._idempotency[idempotency_key] = run.run_id
@@ -192,6 +199,7 @@ class RunStore:
                 "status": run.status,
                 "created_at": run.created_at,
                 "proof": run.proof,
+                "session": run.session,
             }
             for run in sorted(self._runs.values(), key=lambda item: item.created_at, reverse=True)
         ]

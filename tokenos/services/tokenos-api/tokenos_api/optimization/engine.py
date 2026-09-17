@@ -16,6 +16,8 @@ from fastapi import HTTPException
 from ..config import settings
 from ..modeladapter import ModelUnavailable, get_model_adapter, model_available
 from ..pricing import load_price_table
+from ..session import current_session
+from ..simulator import SIMULATION_ORIGIN
 from ..storage.ledger import ledger_store
 from . import imports, prompts
 from .fixtures import WORKFLOW_SAMPLE_ANALYSIS_NOTICE, prompt_example, sample_requests
@@ -197,7 +199,7 @@ def _describe_prompt(request: dict) -> dict:
         "currentRoute": None, "candidateRoute": None, "operations": [], "qualityGates": [],
         "levers": [], "protectionChecks": [], "promptPlan": None, "proof": None, "error": None,
         "lastSequence": 0, "badges": ["Measured sample run"] if inputs.get("promptExampleId") else [],
-        "requirements": request["requirements"], "_tenant": tenant_id(), "_request": request,
+        "requirements": request["requirements"], "_tenant": tenant_id(), "_session": current_session(), "_request": request,
         "_requests": [], "_telemetry": [], "_promptArtifactIds": [item["fileId"] for item in manifest if item.get("role") == "context"], "_sample": bool(inputs.get("promptExampleId")),
         "_application": None, "_sourceHash": imports.digest({"prompt": raw_package, "manifest": manifest}),
     }
@@ -275,7 +277,7 @@ def describe(payload: DescribeRequest) -> dict:
         "levers": [], "protectionChecks": [], "promptPlan": None, "proof": None, "error": None, "lastSequence": 0,
         "badges": ["Measured sample run"] if sample else [],
         "requirements": request["requirements"],
-        "_tenant": tenant_id(), "_request": request, "_requests": records, "_telemetry": telemetry,
+        "_tenant": tenant_id(), "_session": current_session(), "_request": request, "_requests": records, "_telemetry": telemetry,
         "_sample": sample, "_application": application["id"] if application else None,
         "_sourceHash": imports.digest({"records": records, "telemetry": telemetry}),
     }
@@ -882,11 +884,17 @@ async def _route(run: dict, *, baseline: bool = False) -> dict:
 
 def _dimensions(run: dict) -> dict:
     inputs = run["_request"]["inputs"]
+    # A simulated run is reproducible demonstration evidence, never production
+    # spend. Classifying it as `sample` keeps it out of the measured aggregates
+    # in reporting, so a demonstration can never be summed into real spend.
+    simulated = settings.simulated
     return {"application": run["_application"] or "unassigned", "environment": inputs.get("environment", "local"),
             "workflow": "workflow_optimization", "inputSource": run["inputSource"],
             "optimizationTarget": run.get("optimizationTarget", "measured_workflow"),
             "promptRun": run.get("optimizationTarget") == "single_prompt",
-            "proofType": "sample" if run["_sample"] else "measured", "owner": inputs.get("owner", ""),
+            "proofType": "sample" if (run["_sample"] or simulated) else "measured",
+            "origin": SIMULATION_ORIGIN if simulated else "live",
+            "owner": inputs.get("owner", ""),
             "costCenter": inputs.get("costCenter", ""), "priceTableVersion": run["priceTableVersion"]}
 
 
