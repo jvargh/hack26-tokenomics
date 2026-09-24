@@ -1,4 +1,6 @@
-# TokenOS: AI Work and Workflow Optimization
+# TokenOS: AI Work and Workflow Optimizer
+
+> **Demo video:** [Watch the TokenOS walkthrough on YouTube](https://youtube.com/shorts/PWWNHfphZfk)
 
 TokenOS explores a practical question: **what is the least-expensive eligible route
 that still produces a verified outcome?**
